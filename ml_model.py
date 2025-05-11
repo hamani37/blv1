@@ -1,83 +1,46 @@
+import openai
 import os
-import pickle
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+import json
 
-MODEL_PATH = 'model.pkl'
-COUNT_PATH = 'learning_count.txt'
-MAX_LEARNING_SIGNALS = 50
+CHEMIN_COMPTEUR = "compteur.json"
 
-# Initialisation
-if os.path.exists(MODEL_PATH):
-    print("[BOOT] Chargement du modèle IA...")
-    with open(MODEL_PATH, 'rb') as f:
-        model = pickle.load(f)
-else:
-    print("[BOOT] Nouveau modèle IA initialisé.")
-    model = None
+openai.api_key = os.getenv("OPENAI_API_KEY")  # clé stockée dans Render
 
-if os.path.exists(COUNT_PATH):
-    with open(COUNT_PATH, 'r') as f:
-        learning_count = int(f.read().strip())
-else:
-    learning_count = 0
+def charger_compteur():
+    if os.path.exists(CHEMIN_COMPTEUR):
+        with open(CHEMIN_COMPTEUR, 'r') as f:
+            return json.load(f).get("valeur", 0)
+    return 0
 
-print(f"[BOOT] Compteur apprentissage : {learning_count}/{MAX_LEARNING_SIGNALS}")
+def sauvegarder_compteur(valeur):
+    with open(CHEMIN_COMPTEUR, 'w') as f:
+        json.dump({"valeur": valeur}, f)
 
-def save_model():
-    with open(MODEL_PATH, 'wb') as f:
-        pickle.dump(model, f)
+def analyser_avec_openai(signal):
+    try:
+        message_systeme = (
+            "Tu es une IA experte en trading crypto. "
+            "Quand on te donne un signal (type 'long' ou 'short'), tu dis si c'est un bon ou mauvais signal. "
+            "Et tu expliques ton raisonnement de façon marrante ou vulgaire, comme un trader qui a du caractère. "
+            "Sois direct, franc, et drôle si possible."
+        )
 
-def save_count():
-    with open(COUNT_PATH, 'w') as f:
-        f.write(str(learning_count))
+        message_utilisateur = f"Voici le signal reçu : {signal}. Ce signal est-il bon ou mauvais ? Explique avec ton style."
 
-def extract_features(signal_data):
-    return [
-        1 if signal_data['type'] == 'long' else 0,
-        np.random.random(),
-        np.random.random(),
-        np.random.random()
-    ]
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": message_systeme},
+                {"role": "user", "content": message_utilisateur}
+            ],
+            temperature=0.9
+        )
 
-def train_model(existing_model, signal_data):
-    X = [extract_features(signal_data)]
-    y = [1 if signal_data['type'] == 'long' else 0]
+        reponse = response.choices[0].message.content.strip()
+        if "mauvais" in reponse.lower():
+            return "mauvais", reponse
+        else:
+            return "bon", reponse
 
-    if existing_model is None:
-        model_local = RandomForestClassifier()
-        model_local.fit(X, y)
-    else:
-        model_local = existing_model
-        model_local.fit(X, y)
-
-    return model_local
-
-def predict_signal(model_local, signal_data):
-    x = [extract_features(signal_data)]
-    prediction = model_local.predict(x)[0]
-    if prediction == 1:
-        return "Bon signal : RSI bas, MACD haussier, volume en hausse."
-    else:
-        return "Mauvais signal : MACD négatif, volume faible, tendance incertaine."
-
-def process_signal(signal_data):
-    global model, learning_count
-
-    signal_type = signal_data.get('type')
-    if signal_type not in ['long', 'short']:
-        return "Signal invalide"
-
-    if learning_count < MAX_LEARNING_SIGNALS:
-        model = train_model(model, signal_data)
-        learning_count += 1
-        save_model()
-        save_count()
-        print(f"✅ Signal reçu : {signal_data}")
-        print(f"📚 Apprentissage en cours : {learning_count}/{MAX_LEARNING_SIGNALS}")
-        return f"Apprentissage en cours : {learning_count}/{MAX_LEARNING_SIGNALS}"
-    else:
-        explanation = predict_signal(model, signal_data)
-        print(f"✅ Signal reçu : {signal_data}")
-        print(f"📊 Explication IA : {explanation}")
-        return f"Explication IA : {explanation}"
+    except Exception as e:
+        return "erreur", f"Erreur IA OpenAI : {str(e)}"
