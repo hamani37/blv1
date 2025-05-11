@@ -1,29 +1,23 @@
-# ml-model.py
+# ml_model.py
 
-import os
 import openai
+import os
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def expliquer_signal(signal, donnees, decision):
+def expliquer_signal(signal: str, donnees: dict, decision: bool) -> str:
     try:
         prompt = (
-            f"Tu es un expert en analyse de signaux de trading. "
-            f"Tu dois expliquer si le signal reçu est bon ou mauvais en te basant sur les indicateurs suivants :\n"
-            f"{donnees}\n\n"
-            f"Le signal était de type : {signal}.\n"
-            f"L'IA a décidé que ce signal était : {'✅ bon' if decision else '❌ mauvais'}.\n"
-            f"Explique pourquoi."
+            f"Voici un signal de trading reçu : {signal.upper()}. "
+            f"Les indicateurs sont : {donnees}. "
+            f"Selon l'IA, ce signal est considéré comme {'bon' if decision else 'mauvais'}. "
+            f"Explique en une phrase simple pourquoi ce signal est jugé ainsi."
         )
 
         response = openai.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Tu es un assistant expert en trading crypto."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            max_tokens=150
+            model="gpt-3.5-turbo",  # ✅ on remplace gpt-4 ici
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
         )
 
         return response.choices[0].message.content.strip()
