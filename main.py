@@ -1,72 +1,77 @@
+# main.py
+
 from flask import Flask, request, jsonify
-import os
-import json
-import openai
-from datetime import datetime
+from ml_model import expliquer_signal
+import time
 
 app = Flask(__name__)
 
-# Clé API OpenAI depuis le fichier .env
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Stockage des signaux pour analyse entre deux
+signaux_reçus = []
 
-# Log des signaux
-SIGNAL_LOG_FILE = "logs/signals.jsonl"
-os.makedirs("logs", exist_ok=True)
+@app.route('/')
+def home():
+    return "🔗 Serveur IA actif et prêt à recevoir des signaux."
 
-# Enregistrer un signal dans un fichier
-def log_signal(signal_data):
-    signal_data["timestamp"] = datetime.utcnow().isoformat()
-    with open(SIGNAL_LOG_FILE, "a") as f:
-        f.write(json.dumps(signal_data) + "\n")
-
-# Appel à l’API OpenAI pour expliquer un signal
-def explain_signal(signal_type, indicators, result):
-    prompt = f"""
-Tu es une IA d’analyse de signaux de trading.
-Tu dois expliquer pourquoi un signal est {result.upper()}.
-
-Signal reçu : {signal_type}
-Indicateurs disponibles :
-{json.dumps(indicators, indent=2)}
-
-Explique de façon claire et concise, en une phrase ou deux maximum.
-"""
-    try:
-        completion = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Tu es un expert en stratégie de trading algorithmique."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=150
-        )
-        return completion.choices[0].message["content"].strip()
-    except Exception as e:
-        return f"Erreur OpenAI : {e}"
-
-@app.route("/webhook", methods=["POST"])
+@app.route('/webhook', methods=['POST'])
 def webhook():
-    data = request.json
-    if not data or "type" not in data:
-        return jsonify({"status": "error", "message": "Signal invalide"}), 400
+    data = request.get_json()
+    print(f"✅ Signal reçu : {data}")
 
-    signal_type = data["type"]
-    indicators = data.get("indicators", {})  # ex: { "rsi": 55, "volume": 932000 }
-    result = data.get("result", "inconnu")  # temporairement en mode test
+    type_signal = data.get("type")
+    timestamp = time.time()
 
-    log_signal({
-        "type": signal_type,
-        "indicators": indicators,
-        "result": result
+    # Ajouter ce signal dans l'historique
+    signaux_reçus.append({
+        "type": type_signal,
+        "timestamp": timestamp,
+        "prix": get_mock_price()  # Remplace par le vrai prix via API externe plus tard
     })
 
-    explication = explain_signal(signal_type, indicators, result)
+    decision = True  # Pour le moment on considère le signal comme "bon"
 
-    print("✅ Signal reçu :", data)
-    print("📊 Explication IA :", explication)
+    # Si on a au moins deux signaux, on analyse
+    if len(signaux_reçus) >= 2:
+        prev = signaux_reçus[-2]
+        curr = signaux_reçus[-1]
 
-    return jsonify({"status": "ok", "explication": explication})
+        variation = (
+            ((curr["prix"] - prev["prix"]) / prev["prix"]) * 100
+            if prev["type"] == "long"
+            else ((prev["prix"] - curr["prix"]) / prev["prix"]) * 100
+        )
 
-@app.route("/", methods=["GET"])
-def home():
-    return "🚀 Serveur IA Trading prêt à recevoir des signaux."
+        decision = variation >= 0.5
+
+    # Simuler les indicateurs (remplacer par de vrais calculs plus tard)
+    indicateurs = {
+        "RSI": 61.5,
+        "MACD": -0.3,
+        "Volume": 489321,
+        "Trend": "haussière",
+        "Support": 24500,
+        "Resistance": 25200
+    }
+
+    message = expliquer_signal(
+        signal=type_signal,
+        donnees=indicateurs,
+        decision=decision
+    )
+
+    print(f"📊 Explication IA : {message}")
+
+    return jsonify({
+        "statut": "OK",
+        "signal": type_signal,
+        "decision": "bon" if decision else "mauvais",
+        "explication": message
+    })
+
+def get_mock_price():
+    # 🧪 Simule un prix aléatoire pour les tests
+    import random
+    return round(random.uniform(100, 200), 2)
+
+if __name__ == '__main__':
+    app.run(debug=True)
