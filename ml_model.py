@@ -1,15 +1,28 @@
-from flask import Flask, request, jsonify
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+import pickle
 
-app = Flask(__name__)
+class SignalAnalyzer:
+    def __init__(self):
+        self.model = RandomForestClassifier()
+        self.trained = False
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-    if not data or 'type' not in data:
-        return jsonify({"status": "error", "message": "Type manquant"}), 400
-    signal_type = data["type"]
-    print(f"Signal reçu : {signal_type}")
-    return jsonify({"status": "success", "received": signal_type})
+    def train(self, data):
+        X = list(data['features'])
+        y = data['label']
+        self.model.fit(X, y)
+        self.trained = True
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    def predict(self, features):
+        if not self.trained:
+            return "non_traite"
+        return self.model.predict([features])[0]
+
+    def save(self, path="model.pkl"):
+        with open(path, "wb") as f:
+            pickle.dump(self.model, f)
+
+    def load(self, path="model.pkl"):
+        with open(path, "rb") as f:
+            self.model = pickle.load(f)
+            self.trained = True
