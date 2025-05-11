@@ -1,77 +1,63 @@
-# main.py
-
-from flask import Flask, request, jsonify
-from ml_model import expliquer_signal
-import time
+from flask import Flask, request
+from datetime import datetime
+import json
+import os
+from utils.decision import should_trade
+from utils.execute_trade import execute_trade
+from utils.analyse_signal import analyse_signal
 
 app = Flask(__name__)
 
-# Stockage des signaux pour analyse entre deux
-signaux_reçus = []
+SIGNAL_LOG_PATH = "data/signal_count.json"
+
+def init_signal_log():
+    today = datetime.utcnow().date().isoformat()
+    if not os.path.exists(SIGNAL_LOG_PATH):
+        os.makedirs(os.path.dirname(SIGNAL_LOG_PATH), exist_ok=True)
+        with open(SIGNAL_LOG_PATH, "w") as f:
+            json.dump({"date": today, "count": 0}, f)
+
+def get_signal_count():
+    with open(SIGNAL_LOG_PATH, "r") as f:
+        data = json.load(f)
+    return data
+
+def increment_signal_count():
+    today = datetime.utcnow().date().isoformat()
+    data = get_signal_count()
+    if data["date"] != today:
+        data = {"date": today, "count": 1}
+    else:
+        data["count"] += 1
+    with open(SIGNAL_LOG_PATH, "w") as f:
+        json.dump(data, f)
+    return data["count"]
 
 @app.route('/')
 def home():
-    return "🔗 Serveur IA actif et prêt à recevoir des signaux."
+    return "Serveur IA de Trading actif."
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
+    signal_type = data.get("type", "")
+    signal_number = increment_signal_count()
+
     print(f"✅ Signal reçu : {data}")
+    print(f"🧠 Apprentissage : {signal_number} / 50 signaux collectés")
 
-    type_signal = data.get("type")
-    timestamp = time.time()
+    if signal_number <= 50:
+        print("📊 Mode apprentissage : ce signal est stocké uniquement pour entraînement.")
+        analyse_signal(data, mode="training")
+        return {"status": "learning", "received": True}
 
-    # Ajouter ce signal dans l'historique
-    signaux_reçus.append({
-        "type": type_signal,
-        "timestamp": timestamp,
-        "prix": get_mock_price()  # Remplace par le vrai prix via API externe plus tard
-    })
-
-    decision = True  # Pour le moment on considère le signal comme "bon"
-
-    # Si on a au moins deux signaux, on analyse
-    if len(signaux_reçus) >= 2:
-        prev = signaux_reçus[-2]
-        curr = signaux_reçus[-1]
-
-        variation = (
-            ((curr["prix"] - prev["prix"]) / prev["prix"]) * 100
-            if prev["type"] == "long"
-            else ((prev["prix"] - curr["prix"]) / prev["prix"]) * 100
-        )
-
-        decision = variation >= 0.5
-
-    # Simuler les indicateurs (remplacer par de vrais calculs plus tard)
-    indicateurs = {
-        "RSI": 61.5,
-        "MACD": -0.3,
-        "Volume": 489321,
-        "Trend": "haussière",
-        "Support": 24500,
-        "Resistance": 25200
-    }
-
-    message = expliquer_signal(
-        signal=type_signal,
-        donnees=indicateurs,
-        decision=decision
-    )
-
-    print(f"📊 Explication IA : {message}")
-
-    return jsonify({
-        "statut": "OK",
-        "signal": type_signal,
-        "decision": "bon" if decision else "mauvais",
-        "explication": message
-    })
-
-def get_mock_price():
-    # 🧪 Simule un prix aléatoire pour les tests
-    import random
-    return round(random.uniform(100, 200), 2)
+    # Sinon, prise de décision IA + trade
+    if should_trade(data):
+        result = execute_trade(data)
+        return {"status": "executed", "result": result}
+    else:
+        return {"status": "ignored", "reason": "IA rejeté ce signal"}
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    init_signal_log()
+    app.run(host='0.0.0.0', port=10000)
