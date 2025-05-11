@@ -1,26 +1,35 @@
-# ml_model.py
-
-import openai
+from sklearn.ensemble import RandomForestClassifier
+import pandas as pd
+import joblib
 import os
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+model_path = "utils/model.pkl"
+dataset_path = "utils/signaux.csv"
 
-def expliquer_signal(signal: str, donnees: dict, decision: bool) -> str:
-    try:
-        prompt = (
-            f"Voici un signal de trading reçu : {signal.upper()}. "
-            f"Les indicateurs sont : {donnees}. "
-            f"Selon l'IA, ce signal est considéré comme {'bon' if decision else 'mauvais'}. "
-            f"Explique en une phrase simple pourquoi ce signal est jugé ainsi."
-        )
+# Création du fichier si non existant
+if not os.path.exists(dataset_path):
+    df = pd.DataFrame(columns=["rsi", "macd", "volume", "trend", "label"])
+    df.to_csv(dataset_path, index=False)
 
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",  # ✅ on remplace gpt-4 ici
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-        )
+def train_model():
+    df = pd.read_csv(dataset_path)
+    if len(df) < 10:
+        print("📉 Pas assez de données pour entraîner le modèle.")
+        return None
 
-        return response.choices[0].message.content.strip()
+    X = df[["rsi", "macd", "volume", "trend"]]
+    y = df["label"]
 
-    except Exception as e:
-        return f"Erreur OpenAI : {e}"
+    model = RandomForestClassifier()
+    model.fit(X, y)
+    joblib.dump(model, model_path)
+    print("✅ Modèle IA entraîné et sauvegardé.")
+
+def predict(features):
+    if not os.path.exists(model_path):
+        print("⚠️ Modèle non trouvé. Entraînez-le d'abord.")
+        return "skip"
+
+    model = joblib.load(model_path)
+    result = model.predict([features])[0]
+    return result
