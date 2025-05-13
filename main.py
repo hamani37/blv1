@@ -1,74 +1,87 @@
-from flask import Flask, request, jsonify
-import json
 import os
+import json
 import time
-from utils.ml_model import process_signal
-from utils.analyse_signal import log_analysis, update_live_price, init_background_tasks
+import threading
+import requests
+from flask import Flask, request, jsonify
+from ml_model import IA_Pro
 
 app = Flask(__name__)
+model = IA_Pro()
 
-data_file = 'data/live_data.json'
-signal_log_file = 'data/signal_log.json'
+SIGNAL_FILE = "data/signals.json"
+PRICE_FILE = "data/price_history.json"
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# ✅ Crée le dossier s'il n'existe pas
-os.makedirs("data", exist_ok=True)
+def get_current_price():
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd"
+        response = requests.get(url)
+        return response.json()["solana"]["usd"]
+    except:
+        return None
 
-# Charger les signaux existants
-if os.path.exists(signal_log_file):
-    with open(signal_log_file, "r") as f:
-        signal_log = json.load(f)
-else:
-    signal_log = []
+def save_json(data, path):
+    with open(path, "w") as f:
+        json.dump(data, f)
 
-# Charger les données live
-if os.path.exists(data_file):
-    with open(data_file, "r") as f:
-        live_data = json.load(f)
-else:
-    live_data = {
-        "last_price": None,
-        "last_signal": None,
-        "variation": None
+def load_json(path):
+    if not os.path.exists(path):
+        return []
+    with open(path, "r") as f:
+        return json.load(f)
+
+def log_colored(msg, color="blue"):
+    colors = {
+        "red": "\033[91m",
+        "green": "\033[92m",
+        "yellow": "\033[93m",
+        "blue": "\033[94m",
+        "end": "\033[0m"
     }
+    print(f"{colors[color]}{msg}{colors['end']}")
 
-# Initialisation IA
-print("[BOOT] Nouveau modèle IA initialisé.")
-print(f"[BOOT] Compteur apprentissage : {len(signal_log)}/50")
-init_background_tasks()
+@app.route("/", methods=["GET"])
+def index():
+    return "IA Scalping Render OK"
 
-@app.route('/')
-def home():
-    return "BLV IA Active"
-
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     signal = request.get_json()
-    print(f"✅ Signal reçu : {signal}")
+    signal_type = signal.get("type", "unknown")
+    price = get_current_price()
+    if price is None:
+        return jsonify({"error": "Prix introuvable"}), 500
 
-    # Analyse IA
-    result = process_signal(signal, signal_log, live_data)
+    log_colored(f"✅ Signal reçu : {signal}", "green")
+    
+    if model.apprentissage_en_cours():
+        model.entrainer(signal, price)
+        log_colored(f"📚 Apprentissage en cours : {model.get_compteur()}/50", "yellow")
+    else:
+        decision, explication = model.analyser(signal, price)
+        log_colored(f"📊 IA a jugé ce signal comme : {decision.upper()}", "blue")
+        log_colored(f"📢 Explication : {explication}", "green")
 
-    # Affichage log
-    log_analysis(signal, result, signal_log)
+    # Enregistrement historique
+    historique = load_json(SIGNAL_FILE)
+    historique.append({"signal": signal_type, "prix": price, "timestamp": time.time()})
+    save_json(historique, SIGNAL_FILE)
 
-    # Enregistrement
-    signal_log.append({
-        "type": signal["type"],
-        "judgment": result["judgment"],
-        "explanation": result["explanation"],
-        "price": live_data["last_price"],
-        "variation": live_data["variation"],
-        "timestamp": time.time()
-    })
+    return jsonify({"status": "ok"})
 
-    # ✅ Sauvegarde fichiers JSON
-    with open(signal_log_file, "w") as f:
-        json.dump(signal_log, f, indent=2)
+def suivi_price():
+    while True:
+        prix = get_current_price()
+        if prix:
+            log_colored(f"[SUIVI] Prix actuel : {prix} $", "yellow")
+            historique = load_json(PRICE_FILE)
+            historique.append({"timestamp": time.time(), "prix": prix})
+            save_json(historique[-300:], PRICE_FILE)
+        time.sleep(1)
 
-    with open(data_file, "w") as f:
-        json.dump(live_data, f, indent=2)
-
-    return jsonify(result)
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+if __name__ == "__main__":
+    log_colored("[BOOT] Démarrage serveur IA...", "blue")
+    threading.Thread(target=suivi_price, daemon=True).start()
+    app.run(host="0.0.0.0", port=10000)
