@@ -1,45 +1,26 @@
 import openai
 import os
-import requests
-import random
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def get_price():
+def process_signal(signal_type, indicators):
     try:
-        url = "https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT"
-        response = requests.get(url).json()
-        return float(response['price'])
-    except Exception as e:
-        return None
+        prompt = f"""
+Tu es un expert en trading crypto. Analyse ce signal de type {signal_type.upper()} reçu avec ces indicateurs :
+Prix actuel : {indicators['last']} USD
+Variation max : {indicators['high']} USD
+Variation min : {indicators['low']} USD
+RSI : {indicators['rsi']}
+MACD : {indicators['macd']}
+Bollinger : {indicators['boll']}
+OBV : {indicators['obv']}
 
-def get_indicators():
-    # Simulation réaliste d'indicateurs, à remplacer plus tard par vrais calculs si besoin
-    return {
-        "RSI": round(random.uniform(40, 80), 2),
-        "MACD": round(random.uniform(-2, 2), 2),
-        "Boll": round(random.uniform(0.5, 2.5), 2),
-        "OBV": round(random.uniform(1000, 10000), 2),
-    }
-
-def analyser_signal(signal_type):
-    prix = get_price()
-    indicateurs = get_indicators()
-
-    if not prix:
-        return "❌ Erreur de récupération du prix."
-
-    message = f"📈 Signal: {signal_type.upper()} | Prix: {prix} | RSI: {indicateurs['RSI']} | MACD: {indicateurs['MACD']} | Boll: {indicateurs['Boll']} | OBV: {indicateurs['OBV']}\nPhase d'apprentissage"
-
-    try:
-        completion = openai.chat.completions.create(
+Donne un avis très clair et court (sans blague ni humour).
+"""
+        completion = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Tu es un expert en crypto. Rends les analyses claires et sérieuses."},
-                {"role": "user", "content": f"Voici un signal {signal_type} avec un prix de {prix} USDT. Indicateurs: {indicateurs}. Donne une analyse simple et claire."}
-            ]
+            messages=[{"role": "user", "content": prompt}]
         )
-        interpretation = completion.choices[0].message.content.strip()
-        return f"{message}\n🧠 Réponse IA:\n{interpretation}"
+        return completion.choices[0].message["content"]
     except Exception as e:
-        return f"{message}\nErreur IA: \n{str(e)}"
+        return f"Erreur IA: {str(e)}"
