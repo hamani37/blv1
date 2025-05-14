@@ -1,7 +1,8 @@
-import random
+from colorama import Fore, Style
 
-def log_signal(signal_type, price, features):
-    rsi, macd, boll, obv = features
-    color = "\033[92m" if rsi > 50 and macd > 0 else "\033[91m"
-    reset = "\033[0m"
-    print(f"{color}📈 Signal: {signal_type.upper()} | Prix: {price} | RSI: {rsi} | MACD: {macd} | Boll: {boll} | OBV: {obv}{reset}")
+def enregistrer_log(signal, info, interpretation, phase):
+    direction = signal["type"].upper()
+    prix = info["price"]
+    print(f"{Fore.CYAN}📈 Signal: {direction} | Prix: {prix:.2f} | RSI: {info['rsi']} | MACD: {info['macd']} | Boll: {info['bollinger']} | OBV: {info['obv']}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}{phase}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN if '✅' in interpretation else Fore.RED}{interpretation}{Style.RESET_ALL}")
