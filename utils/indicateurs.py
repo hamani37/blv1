@@ -1,5 +1,3 @@
-# utils/indicateurs.py
-
 import requests
 
 def recuperer_prix_binance_et_indicateurs(type_signal):
