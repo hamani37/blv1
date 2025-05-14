@@ -2,6 +2,6 @@ Flask
 gunicorn
 scikit-learn
 pandas
-openai
+openai==0.28.1
 requests
 colorama
