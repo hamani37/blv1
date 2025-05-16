@@ -2,25 +2,29 @@ import openai
 import os
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+historique = []
 
-def process_signal(signal_type, indicators):
+def apprendre_ia(data):
+    global historique
+    historique = data[-50:]
+
+def prediction_ia(signal, prix, indicateurs):
     try:
         prompt = f"""
-Tu es un expert en trading crypto. Analyse ce signal de type {signal_type.upper()} reçu avec ces indicateurs :
-Prix actuel : {indicators['last']} USD
-Variation max : {indicators['high']} USD
-Variation min : {indicators['low']} USD
-RSI : {indicators['rsi']}
-MACD : {indicators['macd']}
-Bollinger : {indicators['boll']}
-OBV : {indicators['obv']}
+Tu es un expert en trading crypto. Analyse ce signal :
+Signal : {signal.upper()}
+Prix : {prix}
+RSI : {indicateurs['RSI']}
+MACD : {indicateurs['MACD']}
+Bollinger : {indicateurs['BOLL']}
+OBV : {indicateurs['OBV']}
 
-Donne un avis très clair et court (sans blague ni humour).
-"""
-        completion = openai.ChatCompletion.create(
+Donne une réponse claire : ce signal est-il 🔥 bon ou 💩 mauvais ? Dis-moi pourquoi en une phrase.
+        """
+        reponse = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}]
         )
-        return completion.choices[0].message["content"]
+        return reponse.choices[0].message["content"]
     except Exception as e:
-        return f"Erreur IA: {str(e)}"
+        return f"Erreur IA: {e}"
