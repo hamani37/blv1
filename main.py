@@ -1,45 +1,46 @@
-import time
+from flask import Flask, request, jsonify
+from log_utils import log_message
+from ml_model import analyze_signal_with_ai
+from indicators import fetch_price_and_indicators
 import json
-from flask import Flask, request
-from log_utils import log_signal, print_stats
-from ml_model import predict_signal, auto_train
-from live_price import get_price_and_indicators, update_variation
+import time
 
 app = Flask(__name__)
-variation_tracker = {"last_price": None, "max": 0, "min": float("inf")}
 
-@app.route("/")
-def index():
-    return "BLV Trading IA - Webhook en ligne"
-
-@app.route("/webhook", methods=["POST"])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.json
-    signal = data.get("signal")
+    log_message(f"✅ Nouveau signal reçu : {data}")
 
-    if not signal:
-        return "Aucun signal", 400
+    try:
+        live_data = fetch_price_and_indicators()
+        log_message(f"📊 Données récupérées : {live_data}")
+    except Exception as e:
+        log_message(f"❌ Erreur lors de la récupération des données en direct : {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
 
-    price_data = get_price_and_indicators()
-    update_variation(price_data["price"], variation_tracker)
+    try:
+        decision, explanation = analyze_signal_with_ai(data, live_data)
+        log_message(f"🤖 IA : {explanation}")
 
-    result = {
-        "signal": signal,
-        **price_data,
-        "variation_max": variation_tracker["max"],
-        "variation_min": variation_tracker["min"]
-    }
+        # Sauvegarde dans le fichier
+        with open("live_data.json", "a") as f:
+            f.write(json.dumps({
+                "timestamp": time.time(),
+                "signal": data,
+                "live_data": live_data,
+                "decision": decision,
+                "explanation": explanation
+            }) + "\n")
 
-    log_signal(result)
-    auto_train()
+        return jsonify({'status': 'success', 'decision': decision, 'explanation': explanation})
+    except Exception as e:
+        log_message(f"❌ Erreur dans l'analyse IA : {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
 
-    print(f"\n📈 Signal: {signal} | Prix: {price_data['price']} | RSI: {price_data['rsi']} | MACD: {price_data['macd']} | "
-          f"Boll: {price_data['boll']} | OBV: {price_data['obv']} | VWAP: {price_data['vwap']} | ATR: {price_data['atr']} | "
-          f"SuperTrend: {price_data['supertrend']}")
-    print(f"🟡 Variation max : {variation_tracker['max']} | Variation min : {variation_tracker['min']}")
-    print_stats()
+@app.route('/')
+def index():
+    return "🟢 Serveur IA de Trading en ligne"
 
-    return "Signal reçu", 200
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+if __name__ == '__main__':
+    app.run(debug=True)
