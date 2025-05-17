@@ -1,25 +1,9 @@
-import json
-from collections import Counter
+from datetime import datetime
 
-def log_signal(signal_data):
-    try:
-        with open("signals_log.json", "r") as f:
-            logs = json.load(f)
-    except:
-        logs = []
+def log_message(msg):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    line = f"[{timestamp}] {msg}"
+    print(line)
 
-    logs.append(signal_data)
-    with open("signals_log.json", "w") as f:
-        json.dump(logs, f, indent=2)
-
-def print_stats():
-    try:
-        with open("signals_log.json", "r") as f:
-            logs = json.load(f)
-
-        count = Counter([s["signal"] for s in logs])
-        total = len(logs)
-        print(f"📊 Stats (total {total} signaux) : {dict(count)}")
-
-    except:
-        print("Aucune stat disponible")
+    with open("logs.txt", "a") as f:
+        f.write(line + "\n")
