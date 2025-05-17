@@ -1,30 +1,15 @@
-import openai
-import os
+import json
+import random
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-historique = []
+# Exemple d'IA simple - à remplacer plus tard par une vraie IA entraînée
+def predict_signal(signal_data):
+    return signal_data["signal"] if random.random() > 0.3 else "IGNORE"
 
-def apprendre_ia(data):
-    global historique
-    historique = data[-50:]
-
-def prediction_ia(signal, prix, indicateurs):
+def auto_train():
     try:
-        prompt = f"""
-Tu es un expert en trading crypto. Analyse ce signal :
-Signal : {signal.upper()}
-Prix : {prix}
-RSI : {indicateurs['RSI']}
-MACD : {indicateurs['MACD']}
-Bollinger : {indicateurs['BOLL']}
-OBV : {indicateurs['OBV']}
-
-Donne une réponse claire : ce signal est-il 🔥 bon ou 💩 mauvais ? Dis-moi pourquoi en une phrase.
-        """
-        reponse = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return reponse.choices[0].message["content"]
-    except Exception as e:
-        return f"Erreur IA: {e}"
+        with open("signals_log.json", "r") as f:
+            logs = json.load(f)
+        if len(logs) >= 50:
+            print("📚 Entraînement automatique IA terminé.")
+    except Exception:
+        pass
