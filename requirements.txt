@@ -6,4 +6,4 @@ pandas
 tqdm
 colorama
 gunicorn
-ta-lib
+ta
