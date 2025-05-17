@@ -1,73 +1,45 @@
-from flask import Flask, request
-from ml_model import apprendre_ia, prediction_ia
-from log_utils import log_message
-from indicateurs import get_all_indicators
-import requests
-import json
-import os
 import time
+import json
+from flask import Flask, request
+from log_utils import log_signal, print_stats
+from ml_model import predict_signal, auto_train
+from live_price import get_price_and_indicators, update_variation
 
 app = Flask(__name__)
+variation_tracker = {"last_price": None, "max": 0, "min": float("inf")}
 
-data_file = "live_data.json"
-API_BINANCE = "https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT"
-
-historique_signaux = []
-previous_price = None
-
-def get_live_price():
-    try:
-        response = requests.get(API_BINANCE)
-        return float(response.json()["price"])
-    except:
-        return None
+@app.route("/")
+def index():
+    return "BLV Trading IA - Webhook en ligne"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    global previous_price
-
     data = request.json
-    signal = data.get("type")
+    signal = data.get("signal")
 
-    if signal not in ["long", "short"]:
-        return "Signal invalide", 400
+    if not signal:
+        return "Aucun signal", 400
 
-    prix = get_live_price()
-    indicateurs = get_all_indicators()
-    message = f"📈 Signal: {signal.upper()} | Prix: {prix} | RSI: {indicateurs['RSI']} | MACD: {indicateurs['MACD']} | Boll: {indicateurs['BOLL']} | OBV: {indicateurs['OBV']}"
+    price_data = get_price_and_indicators()
+    update_variation(price_data["price"], variation_tracker)
 
-    variation_max = None
-    variation_min = None
-    if previous_price is not None and prix is not None:
-        variation = prix - previous_price
-        variation_max = max(prix, previous_price)
-        variation_min = min(prix, previous_price)
-        message += f"\n🟡 Variation max : {variation_max} | Variation min : {variation_min}"
+    result = {
+        "signal": signal,
+        **price_data,
+        "variation_max": variation_tracker["max"],
+        "variation_min": variation_tracker["min"]
+    }
 
-    print(message)
-    log_message(message)
+    log_signal(result)
+    auto_train()
 
-    historique_signaux.append({"signal": signal, "prix": prix, "indicateurs": indicateurs})
-
-    if len(historique_signaux) < 50:
-        print(f"📚 Apprentissage en cours : {len(historique_signaux)}/50\nPhase d'apprentissage")
-        apprendre_ia(historique_signaux)
-    else:
-        prediction = prediction_ia(signal, prix, indicateurs)
-        print(f"🤖 IA : {prediction}")
-
-    previous_price = prix
-    try:
-        with open(data_file, "w") as f:
-            json.dump(historique_signaux, f)
-    except:
-        pass
+    print(f"\n📈 Signal: {signal} | Prix: {price_data['price']} | RSI: {price_data['rsi']} | MACD: {price_data['macd']} | "
+          f"Boll: {price_data['boll']} | OBV: {price_data['obv']} | VWAP: {price_data['vwap']} | ATR: {price_data['atr']} | "
+          f"SuperTrend: {price_data['supertrend']}")
+    print(f"🟡 Variation max : {variation_tracker['max']} | Variation min : {variation_tracker['min']}")
+    print_stats()
 
     return "Signal reçu", 200
 
-@app.route("/")
-def home():
-    return "Serveur actif."
-
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
