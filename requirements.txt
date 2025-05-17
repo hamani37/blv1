@@ -1,8 +1,7 @@
 Flask
-gunicorn
-scikit-learn
-pandas
 openai==0.28.1
 requests
-colorama
+scikit-learn
+pandas
 tqdm
+colorama
