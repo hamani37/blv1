@@ -1,35 +1,27 @@
-import openai
-import os
+import ta
+import pandas as pd
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+def analyse_signal_ia(df):
+    df = df.copy()
+    df["close"] = df["close"].astype(float)
 
-def analyze_signal_with_ai(signal_data, live_data):
-    prompt = f"""
-Tu es une IA de trading sérieuse.
-Voici le signal TradingView reçu : {signal_data}
-Voici les données live actuelles : {live_data}
+    df["rsi"] = ta.momentum.RSIIndicator(close=df["close"]).rsi()
+    df["macd"] = ta.trend.MACD(close=df["close"]).macd_diff()
+    df["bb_upper"] = ta.volatility.BollingerBands(close=df["close"]).bollinger_hband()
+    df["bb_lower"] = ta.volatility.BollingerBands(close=df["close"]).bollinger_lband()
+    df["obv"] = ta.volume.OnBalanceVolumeIndicator(close=df["close"], volume=df["volume"]).on_balance_volume()
 
-Analyse-les avec les indicateurs (RSI, MACD, Bollinger, OBV, VWAP, SuperTrend, ATR...) et décide :
-1. Si c'est un bon moment pour entrer.
-2. Si c’est un signal pour un trade LONG, SHORT ou à ignorer.
-3. Explique ta décision clairement avec les indicateurs.
+    last = df.iloc[-1]
 
-Réponds uniquement sous cette forme :
-Decision: [LONG/SHORT/IGNORE]
-Explication: [ton analyse sérieuse]
-    """
+    explanation = f"RSI={last['rsi']:.2f}, MACD={last['macd']:.4f}, OBV={last['obv']:.2f}"
+    decision = "NEUTRE"
 
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    if last["rsi"] < 30 and last["macd"] > 0 and last["close"] < last["bb_lower"]:
+        decision = "LONG"
+    elif last["rsi"] > 70 and last["macd"] < 0 and last["close"] > last["bb_upper"]:
+        decision = "SHORT"
 
-    content = response.choices[0].message["content"]
-    lines = content.split("\n")
-    decision_line = next((line for line in lines if line.startswith("Decision:")), None)
-    explanation_line = next((line for line in lines if line.startswith("Explication:")), None)
-
-    decision = decision_line.split("Decision:")[1].strip() if decision_line else "IGNORE"
-    explanation = explanation_line.split("Explication:")[1].strip() if explanation_line else "Pas d'explication."
-
-    return decision, explanation
+    return {
+        "decision": decision,
+        "explanation": explanation
+    }
