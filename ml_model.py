@@ -1,27 +1,39 @@
-import ta
-import pandas as pd
+import openai
+import os
+import json
+from log_utils import get_last_price_variation
 
-def analyse_signal_ia(df):
-    df = df.copy()
-    df["close"] = df["close"].astype(float)
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    df["rsi"] = ta.momentum.RSIIndicator(close=df["close"]).rsi()
-    df["macd"] = ta.trend.MACD(close=df["close"]).macd_diff()
-    df["bb_upper"] = ta.volatility.BollingerBands(close=df["close"]).bollinger_hband()
-    df["bb_lower"] = ta.volatility.BollingerBands(close=df["close"]).bollinger_lband()
-    df["obv"] = ta.volume.OnBalanceVolumeIndicator(close=df["close"], volume=df["volume"]).on_balance_volume()
+def ia_analyse_signal(signal, price, indicators):
+    try:
+        variation = get_last_price_variation(price)
 
-    last = df.iloc[-1]
+        instruction = f"""
+Tu es une IA de trading sérieuse et stricte.
+Voici les données techniques :
+- Signal reçu : {signal}
+- Variation entre les deux derniers signaux : {variation:.2f}%
+- Indicateurs : {json.dumps(indicators, indent=2)}
 
-    explanation = f"RSI={last['rsi']:.2f}, MACD={last['macd']:.4f}, OBV={last['obv']:.2f}"
-    decision = "NEUTRE"
+Règles à respecter :
+- VALIDE un signal LONG uniquement si variation >= +0.5 %
+- VALIDE un signal SHORT uniquement si variation <= -0.5 %
+- Sinon, REFUSE de valider le signal.
 
-    if last["rsi"] < 30 and last["macd"] > 0 and last["close"] < last["bb_lower"]:
-        decision = "LONG"
-    elif last["rsi"] > 70 and last["macd"] < 0 and last["close"] > last["bb_upper"]:
-        decision = "SHORT"
+Réponds uniquement par 'VALIDE' ou 'REFUSE', suivi d'une explication sérieuse et concise.
+"""
 
-    return {
-        "decision": decision,
-        "explanation": explanation
-    }
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": instruction}],
+            temperature=0.4
+        )
+
+        reply = response['choices'][0]['message']['content']
+        decision = "VALIDE" if "VALIDE" in reply.upper() else "REFUSE"
+
+        return decision, reply.strip()
+
+    except Exception as e:
+        return "REFUSE", f"Erreur IA : {str(e)}"
