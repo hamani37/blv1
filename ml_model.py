@@ -2,7 +2,9 @@ import openai
 import os
 import json
 from log_utils import get_last_price_variation
+from dotenv import load_dotenv
 
+load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def ia_analyse_signal(signal, price, indicators):
