@@ -1,13 +1,16 @@
 from flask import Flask, request, jsonify
 import openai
+import os
 from datetime import datetime
 from get_price import get_price_data
 from analyze_indicators import get_indicators
 from log_utils import log_signal, save_signal_to_json
-import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-openai.api_key = "ta_clé_API_OpenAI"
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 last_signal_time = None
 last_price = None
@@ -47,7 +50,6 @@ def webhook():
     last_price = current_price
     last_signal_time = signal_time
 
-    # Préparer le message pour GPT
     messages = [
         {"role": "system", "content": "Tu es un expert en trading crypto. Tu donnes des analyses claires et sérieuses."},
         {"role": "user", "content": f"""Voici les indicateurs pour {symbol} :
@@ -90,7 +92,6 @@ Donne un avis sur le marché (LONG / SHORT / AUCUN), avec une explication série
     except Exception as e:
         print("Erreur IA:", e)
         return jsonify({"error": "Erreur lors de l’appel à l’IA."}), 500
-
 
 if __name__ == "__main__":
     app.run(debug=True)
