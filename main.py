@@ -10,15 +10,8 @@ from log_utils import log_signal, save_signal_to_json
 # Configuration pour Render
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-if os.getenv("RENDER_ENV") != "production":
-    from dotenv import load_dotenv
-    load_dotenv()
-
 app = Flask(__name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
-
-last_signal_time = None
-last_price = None
 
 @app.route("/", methods=["GET"])
 def home():
@@ -26,72 +19,64 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    global last_signal_time, last_price
-
-    data = request.get_json()
-    print("📩 Signal reçu:", data)
-
-    # Paramètres fixes pour SOL/USD 1min
-    symbol = "SOLUSDT"  # Forcé à SOL/USD
-    interval = "1m"     # Forcé à 1 minute
-
-    price_data = get_price_data(symbol, interval)
-    if price_data is None:
-        return jsonify({"error": "Données SOL/USD non disponibles"}), 500
-
-    indicators = get_indicators(price_data)
-    if indicators is None:
-        return jsonify({"error": "Erreur indicateurs SOL/USD"}), 500
-
-    current_price = price_data["close"].iloc[-1]
-    signal_time = datetime.utcnow().isoformat()
-
-    variation = None
-    if last_price is not None:
-        variation = ((current_price - last_price) / last_price) * 100
-
-    last_price = current_price
-    last_signal_time = signal_time
-
-    messages = [
-        {"role": "system", "content": "Expert trading SOL/USD en timeframe 1 minute."},
-        {"role": "user", "content": f"""Données SOL/USD 1min :
-- Prix actuel : {current_price:.4f} $
-- RSI (14) : {indicators['RSI']}
-- MACD : {indicators['MACD']:.5f} / Signal : {indicators['MACD_SIGNAL']:.5f}
-- Bollinger : {indicators['BOLLINGER_HIGH']:.5f} | {indicators['BOLLINGER_LOW']:.5f}
-- Volume (OBV) : {indicators['OBV']:.2f}
-- ATR (14) : {indicators['ATR']:.5f}
-- SuperTrend : {'🟢 LONG' if indicators['SUPERTREND'] else '🔴 SHORT'}
-- Variation depuis dernier signal : {variation:.2f}%
-
-Analyse précise en 3 lignes max. Réponse formatée : [DIRECTION] [CONFIDENCE%] [EXPLICATION]"""}
-    ]
-
     try:
+        data = request.get_json()
+        print("📩 Signal reçu:", data)
+
+        # Paramètres fixes pour SOL/USD 1min
+        symbol = "SOLUSDT"
+        interval = "1m"
+
+        price_data = get_price_data(symbol, interval)
+        if price_data is None or price_data.empty:
+            return jsonify({"error": "Données prix indisponibles"}), 500
+
+        indicators = get_indicators(price_data)
+        if not indicators:
+            return jsonify({"error": "Erreur indicateurs"}), 500
+
+        current_price = price_data["close"].iloc[-1]
+
+        # Vérification des clés des indicateurs
+        required_keys = ['rsi', 'macd', 'macd_signal', 'bollinger_high', 'bollinger_low']
+        if not all(key in indicators for key in required_keys):
+            return jsonify({"error": "Indicateurs incomplets"}), 500
+
+        # Construction du message pour GPT
+        messages = [
+            {"role": "system", "content": "Expert trading SOL/USD 1min."},
+            {"role": "user", "content": f"""Données SOL/USD:
+- Prix: {current_price:.4f}$
+- RSI: {indicators['rsi']}
+- MACD: {indicators['macd']:.5f}
+- Bollinger: {indicators['bollinger_high']:.5f}|{indicators['bollinger_low']:.5f}
+- Volume: {indicators['obv']:.2f}
+Analyse en 2 lignes. Réponse formatée: [DIRECTION] [CONFIDENCE%] [RAISON]"""}
+        ]
+
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=messages,
-            max_tokens=150,
-            temperature=0.3
+            temperature=0.3,
+            max_tokens=100
         )
 
         ai_response = response.choices[0].message["content"].strip()
-        print("🧠 Réponse IA SOL/USD:", ai_response)
+        print("🧠 Réponse IA:", ai_response)
 
-        log_signal(symbol, interval, current_price, variation, ai_response)
-        save_signal_to_json(symbol, interval, current_price, variation, ai_response)
+        # Log et sauvegarde
+        log_signal(symbol, interval, current_price, None, ai_response)
+        save_signal_to_json(symbol, interval, current_price, None, ai_response)
 
         return jsonify({
-            "message": "Signal SOL/USD traité",
-            "price": current_price,
-            "variation": f"{variation:.2f}%" if variation else None,
-            "analysis": ai_response
+            "status": "success",
+            "analysis": ai_response,
+            "price": current_price
         })
 
     except Exception as e:
-        print("Erreur IA SOL/USD:", e)
-        return jsonify({"error": "Erreur analyse SOL/USD"}), 500
+        print(f"🚨 Erreur globale: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
