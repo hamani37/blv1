@@ -1,47 +1,90 @@
-import requests
 import pandas as pd
 import numpy as np
-from ta.trend import MACD, CCIIndicator
-from ta.momentum import RSIIndicator
+from ta.trend import MACD
+from ta.momentum import RSI
 from ta.volatility import BollingerBands
 from ta.volume import OnBalanceVolumeIndicator
-from ta.trend import EMAIndicator
-from ta.trend import SuperTrend
+from ta.volatility import AverageTrueRange
+from ta.trend import EMAIndicator, SMAIndicator
+from ta.trend import VortexIndicator
+from ta.volume import MFIIndicator
 
-def get_binance_data(pair="BTCUSDT", interval="1m", limit=100):
-    url = f"https://api.binance.com/api/v3/klines?symbol={pair}&interval={interval}&limit={limit}"
-    response = requests.get(url)
-    data = response.json()
+def supertrend(df, period=10, multiplier=3):
+    hl2 = (df['high'] + df['low']) / 2
+    df['atr'] = df['high'].rolling(window=period).max() - df['low'].rolling(window=period).min()
+    df['atr'] = df['atr'].rolling(window=period).mean()
 
-    df = pd.DataFrame(data, columns=[
-        'timestamp', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'quote_asset_volume', 'number_of_trades',
-        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-    ])
+    upperband = hl2 + (multiplier * df['atr'])
+    lowerband = hl2 - (multiplier * df['atr'])
 
-    df['close'] = pd.to_numeric(df['close'])
-    df['high'] = pd.to_numeric(df['high'])
-    df['low'] = pd.to_numeric(df['low'])
-    df['volume'] = pd.to_numeric(df['volume'])
+    supertrend = [True] * len(df)
+    for i in range(1, len(df)):
+        if df['close'][i] > upperband[i - 1]:
+            supertrend[i] = True
+        elif df['close'][i] < lowerband[i - 1]:
+            supertrend[i] = False
+        else:
+            supertrend[i] = supertrend[i - 1]
+            if supertrend[i] and lowerband[i] < lowerband[i - 1]:
+                lowerband[i] = lowerband[i - 1]
+            if not supertrend[i] and upperband[i] > upperband[i - 1]:
+                upperband[i] = upperband[i - 1]
 
-    return df
+    final_band = []
+    for i in range(len(df)):
+        final_band.append(lowerband[i] if supertrend[i] else upperband[i])
 
-def get_indicators(pair="BTCUSDT"):
-    df = get_binance_data(pair)
+    df['Supertrend'] = final_band
+    df['Direction'] = np.where(supertrend, 1, -1)
+    return df[['Supertrend', 'Direction']]
 
+def get_indicators(df: pd.DataFrame) -> dict:
     indicators = {}
 
-    df['rsi'] = RSIIndicator(close=df['close']).rsi()
-    df['macd'] = MACD(close=df['close']).macd_diff()
-    df['obv'] = OnBalanceVolumeIndicator(close=df['close'], volume=df['volume']).on_balance_volume()
-    bb = BollingerBands(close=df['close'])
-    df['bollinger_width'] = bb.bollinger_wband()
-    df['ema20'] = EMAIndicator(close=df['close'], window=20).ema_indicator()
+    # RSI
+    rsi = RSI(close=df['close'], window=14).rsi()
+    indicators['RSI'] = rsi.iloc[-1]
 
-    indicators['RSI'] = round(df['rsi'].iloc[-1], 2)
-    indicators['MACD'] = round(df['macd'].iloc[-1], 4)
-    indicators['OBV'] = round(df['obv'].iloc[-1], 2)
-    indicators['Bollinger_Width'] = round(df['bollinger_width'].iloc[-1], 4)
-    indicators['EMA20'] = round(df['ema20'].iloc[-1], 2)
+    # MACD
+    macd = MACD(close=df['close'])
+    indicators['MACD'] = macd.macd().iloc[-1]
+    indicators['MACD_signal'] = macd.macd_signal().iloc[-1]
+
+    # Bollinger Bands
+    bollinger = BollingerBands(close=df['close'], window=20, window_dev=2)
+    indicators['Bollinger_upper'] = bollinger.bollinger_hband().iloc[-1]
+    indicators['Bollinger_lower'] = bollinger.bollinger_lband().iloc[-1]
+
+    # OBV
+    obv = OnBalanceVolumeIndicator(close=df['close'], volume=df['volume'])
+    indicators['OBV'] = obv.on_balance_volume().iloc[-1]
+
+    # ATR
+    atr = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'])
+    indicators['ATR'] = atr.average_true_range().iloc[-1]
+
+    # VWAP (approximé)
+    vwap = (df['volume'] * (df['high'] + df['low'] + df['close']) / 3).cumsum() / df['volume'].cumsum()
+    indicators['VWAP'] = vwap.iloc[-1]
+
+    # EMA / SMA
+    ema = EMAIndicator(close=df['close'], window=20).ema_indicator()
+    sma = SMAIndicator(close=df['close'], window=20).sma_indicator()
+    indicators['EMA'] = ema.iloc[-1]
+    indicators['SMA'] = sma.iloc[-1]
+
+    # MFI
+    mfi = MFIIndicator(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'])
+    indicators['MFI'] = mfi.money_flow_index().iloc[-1]
+
+    # Vortex
+    vortex = VortexIndicator(high=df['high'], low=df['low'], close=df['close'])
+    indicators['Vortex_pos'] = vortex.vortex_indicator_pos().iloc[-1]
+    indicators['Vortex_neg'] = vortex.vortex_indicator_neg().iloc[-1]
+
+    # Supertrend perso
+    super_df = supertrend(df.copy())
+    indicators['Supertrend'] = super_df['Supertrend'].iloc[-1]
+    indicators['Supertrend_dir'] = super_df['Direction'].iloc[-1]
 
     return indicators
