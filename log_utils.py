@@ -1,30 +1,38 @@
 import json
-from colorama import Fore, Style
 import os
 
-def log_with_color(signal, price, decision, explanation):
-    print(f"{Fore.YELLOW}[SIGNAL]{Style.RESET_ALL} {signal} | {Fore.GREEN}Prix:{price}{Style.RESET_ALL} | "
-          f"{Fore.CYAN}Décision IA:{decision}{Style.RESET_ALL} | {Fore.MAGENTA}{explanation}{Style.RESET_ALL}")
+LOG_FILE = 'live_data.json'
 
-def save_signal_data(signal, price, decision, explanation, timestamp):
-    entry = {
-        "timestamp": timestamp,
-        "signal": signal,
-        "price": price,
-        "decision": decision,
-        "explanation": explanation
+def log_signal(signal, price, indicators, decision, explanation):
+    log_entry = {
+        'signal': signal,
+        'price': price,
+        'indicators': indicators,
+        'decision': decision,
+        'explanation': explanation
     }
 
-    if os.path.exists("live_data.json"):
-        with open("live_data.json", "r") as file:
-            try:
-                data = json.load(file)
-            except json.JSONDecodeError:
-                data = []
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, 'r') as f:
+            data = json.load(f)
     else:
         data = []
 
-    data.append(entry)
+    data.append(log_entry)
 
-    with open("live_data.json", "w") as file:
-        json.dump(data, file, indent=4)
+    with open(LOG_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+def get_last_price_variation(current_price):
+    if not os.path.exists(LOG_FILE):
+        return 0.0
+
+    with open(LOG_FILE, 'r') as f:
+        data = json.load(f)
+
+    if not data:
+        return 0.0
+
+    last_price = data[-1]['price']
+    variation = ((current_price - last_price) / last_price) * 100
+    return round(variation, 2)
