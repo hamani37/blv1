@@ -1,90 +1,77 @@
 import pandas as pd
 import numpy as np
-from ta.trend import MACD
-from ta.momentum import RSI
+from ta.momentum import RSIIndicator
+from ta.trend import MACD, CCIIndicator
 from ta.volatility import BollingerBands
 from ta.volume import OnBalanceVolumeIndicator
-from ta.volatility import AverageTrueRange
-from ta.trend import EMAIndicator, SMAIndicator
-from ta.trend import VortexIndicator
-from ta.volume import MFIIndicator
+from ta.trend import SMAIndicator, EMAIndicator
+import json
 
-def supertrend(df, period=10, multiplier=3):
-    hl2 = (df['high'] + df['low']) / 2
-    df['atr'] = df['high'].rolling(window=period).max() - df['low'].rolling(window=period).min()
-    df['atr'] = df['atr'].rolling(window=period).mean()
+def get_indicators(df):
+    if df is None or df.empty:
+        return {}
 
-    upperband = hl2 + (multiplier * df['atr'])
-    lowerband = hl2 - (multiplier * df['atr'])
-
-    supertrend = [True] * len(df)
-    for i in range(1, len(df)):
-        if df['close'][i] > upperband[i - 1]:
-            supertrend[i] = True
-        elif df['close'][i] < lowerband[i - 1]:
-            supertrend[i] = False
-        else:
-            supertrend[i] = supertrend[i - 1]
-            if supertrend[i] and lowerband[i] < lowerband[i - 1]:
-                lowerband[i] = lowerband[i - 1]
-            if not supertrend[i] and upperband[i] > upperband[i - 1]:
-                upperband[i] = upperband[i - 1]
-
-    final_band = []
-    for i in range(len(df)):
-        final_band.append(lowerband[i] if supertrend[i] else upperband[i])
-
-    df['Supertrend'] = final_band
-    df['Direction'] = np.where(supertrend, 1, -1)
-    return df[['Supertrend', 'Direction']]
-
-def get_indicators(df: pd.DataFrame) -> dict:
-    indicators = {}
+    df = df.copy()
 
     # RSI
-    rsi = RSI(close=df['close'], window=14).rsi()
-    indicators['RSI'] = rsi.iloc[-1]
+    rsi = RSIIndicator(close=df['close'], window=14)
+    df['rsi'] = rsi.rsi()
 
     # MACD
     macd = MACD(close=df['close'])
-    indicators['MACD'] = macd.macd().iloc[-1]
-    indicators['MACD_signal'] = macd.macd_signal().iloc[-1]
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
 
     # Bollinger Bands
-    bollinger = BollingerBands(close=df['close'], window=20, window_dev=2)
-    indicators['Bollinger_upper'] = bollinger.bollinger_hband().iloc[-1]
-    indicators['Bollinger_lower'] = bollinger.bollinger_lband().iloc[-1]
+    boll = BollingerBands(close=df['close'], window=20, window_dev=2)
+    df['boll_upper'] = boll.bollinger_hband()
+    df['boll_lower'] = boll.bollinger_lband()
 
     # OBV
     obv = OnBalanceVolumeIndicator(close=df['close'], volume=df['volume'])
-    indicators['OBV'] = obv.on_balance_volume().iloc[-1]
+    df['obv'] = obv.on_balance_volume()
 
-    # ATR
-    atr = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'])
-    indicators['ATR'] = atr.average_true_range().iloc[-1]
+    # SMA 50
+    sma50 = SMAIndicator(close=df['close'], window=50)
+    df['sma50'] = sma50.sma_indicator()
 
-    # VWAP (approximé)
-    vwap = (df['volume'] * (df['high'] + df['low'] + df['close']) / 3).cumsum() / df['volume'].cumsum()
-    indicators['VWAP'] = vwap.iloc[-1]
+    # EMA 20
+    ema20 = EMAIndicator(close=df['close'], window=20)
+    df['ema20'] = ema20.ema_indicator()
 
-    # EMA / SMA
-    ema = EMAIndicator(close=df['close'], window=20).ema_indicator()
-    sma = SMAIndicator(close=df['close'], window=20).sma_indicator()
-    indicators['EMA'] = ema.iloc[-1]
-    indicators['SMA'] = sma.iloc[-1]
+    # CCI
+    cci = CCIIndicator(high=df['high'], low=df['low'], close=df['close'], window=20)
+    df['cci'] = cci.cci()
 
-    # MFI
-    mfi = MFIIndicator(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'])
-    indicators['MFI'] = mfi.money_flow_index().iloc[-1]
+    # Variation entre les deux derniers signaux
+    if len(df) >= 2:
+        df['variation_pct'] = (df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2] * 100
+    else:
+        df['variation_pct'] = 0
 
-    # Vortex
-    vortex = VortexIndicator(high=df['high'], low=df['low'], close=df['close'])
-    indicators['Vortex_pos'] = vortex.vortex_indicator_pos().iloc[-1]
-    indicators['Vortex_neg'] = vortex.vortex_indicator_neg().iloc[-1]
-
-    # Supertrend perso
-    super_df = supertrend(df.copy())
-    indicators['Supertrend'] = super_df['Supertrend'].iloc[-1]
-    indicators['Supertrend_dir'] = super_df['Direction'].iloc[-1]
+    # Résumé final
+    latest = df.iloc[-1]
+    indicators = {
+        'rsi': round(latest['rsi'], 2),
+        'macd': round(latest['macd'], 5),
+        'macd_signal': round(latest['macd_signal'], 5),
+        'boll_upper': round(latest['boll_upper'], 5),
+        'boll_lower': round(latest['boll_lower'], 5),
+        'obv': round(latest['obv'], 2),
+        'sma50': round(latest['sma50'], 5),
+        'ema20': round(latest['ema20'], 5),
+        'cci': round(latest['cci'], 2),
+        'variation_pct': round(latest['variation_pct'], 2)
+    }
 
     return indicators
+
+def is_signal_valid(signal_type, indicators):
+    variation = indicators.get('variation_pct', 0)
+    
+    if signal_type == "LONG" and variation >= 0.5:
+        return True
+    elif signal_type == "SHORT" and variation <= -0.5:
+        return True
+    else:
+        return False
