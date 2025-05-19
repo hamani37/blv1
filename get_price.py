@@ -3,6 +3,11 @@ import json
 import pandas as pd
 from threading import Thread
 import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class RealTimeData:
     def __init__(self, symbol='solusdt'):
@@ -15,7 +20,7 @@ class RealTimeData:
     def connect(self):
         self.ws = websocket.WebSocketApp(
             f"wss://stream.binance.com:9443/ws/{self.symbol}@trade",
-            on_open=lambda ws: print("🔌 Connecté au flux temps réel"),
+            on_open=lambda ws: logger.info("🔌 Connecté au flux temps réel"),
             on_message=self._handle_message,
             on_error=self._handle_error,
             on_close=self._handle_close
@@ -32,19 +37,19 @@ class RealTimeData:
             }])
             self.df = pd.concat([self.df, new_data]).tail(1000)
         except Exception as e:
-            print(f"Erreur traitement données: {str(e)}")
+            logger.error(f"Erreur traitement données: {str(e)}")
 
     def _handle_error(self, ws, error):
-        print(f"🚨 Erreur WebSocket: {str(error)}")
+        logger.error(f"🚨 Erreur WebSocket: {str(error)}")
         self._reconnect()
 
     def _handle_close(self, ws, *args):
-        print("🔌 Déconnexion du WebSocket")
+        logger.info("🔌 Déconnexion du WebSocket")
         self._reconnect()
 
     def _reconnect(self):
         if self.active:
-            print("🔄 Reconnexion dans 5s...")
+            logger.info("🔄 Reconnexion dans 5s...")
             time.sleep(5)
             self.connect()
 
@@ -53,6 +58,6 @@ class RealTimeData:
 
     def get_variation(self, period=60):
         if len(self.df) > period:
-            return ((self.df['price'].iloc[-1] - self.df['price'].iloc[-period]) 
+            return ((self.df['price'].iloc[-1] - self.df['price'].iloc[-period])
                    / self.df['price'].iloc[-period] * 100)
         return 0.0
