@@ -30,12 +30,14 @@ class RealTimeData:
     def _handle_message(self, ws, message):
         try:
             trade = json.loads(message)
+            logger.debug(f"Message reçu: {trade}")
             new_data = pd.DataFrame([{
                 'timestamp': pd.to_datetime(trade['T'], unit='ms'),
                 'price': float(trade['p']),
                 'volume': float(trade['q'])
             }])
             self.df = pd.concat([self.df, new_data]).tail(1000)
+            logger.debug(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
         except Exception as e:
             logger.error(f"Erreur traitement données: {str(e)}")
 
@@ -54,7 +56,12 @@ class RealTimeData:
             self.connect()
 
     def get_recent_data(self):
-        return self.df.iloc[-1].to_dict() if not self.df.empty else None
+        if not self.df.empty:
+            logger.debug(f"Données récentes: {self.df.iloc[-1].to_dict()}")
+            return self.df.iloc[-1].to_dict()
+        else:
+            logger.error("Aucune donnée disponible")
+            return None
 
     def get_variation(self, period=60):
         if len(self.df) > period:
