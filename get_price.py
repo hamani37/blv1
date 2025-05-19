@@ -5,6 +5,7 @@ from threading import Thread
 import time
 import logging
 import os
+import requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,15 +49,12 @@ class RealTimeData:
             data = json.loads(message)
             logger.debug(f"Message reçu: {data}")
             if 'TYPE' in data and data['TYPE'] == '5':
-                timestamp = pd.to_datetime(data.get('LASTUPDATE', time.time()), unit='s')
-                price = data.get('PRICE', None)
-                volume = data.get('VOLUME24HOUR', None)
-
-                if price is not None and volume is not None:
+                if all(key in data for key in ['PRICE', 'VOLUME24HOUR', 'LASTUPDATE']):
+                    timestamp = pd.to_datetime(data['LASTUPDATE'], unit='s')
                     new_data = pd.DataFrame([{
                         'timestamp': timestamp,
-                        'price': price,
-                        'volume': volume
+                        'price': data['PRICE'],
+                        'volume': data['VOLUME24HOUR']
                     }])
                     self.df = pd.concat([self.df, new_data]).tail(1000)
 
@@ -66,7 +64,7 @@ class RealTimeData:
                         logger.info(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
                         self.last_log_time = current_time
                 else:
-                    missing_keys = [key for key in ['PRICE', 'VOLUME24HOUR'] if key not in data]
+                    missing_keys = [key for key in ['PRICE', 'VOLUME24HOUR', 'LASTUPDATE'] if key not in data]
                     logger.error(f"Clés manquantes dans les données reçues: {missing_keys}")
         except Exception as e:
             logger.error(f"Erreur traitement données: {str(e)}")
@@ -97,3 +95,31 @@ class RealTimeData:
             return ((self.df['price'].iloc[-1] - self.df['price'].iloc[-period])
                    / self.df['price'].iloc[-period] * 100)
         return 0.0
+
+def get_sol_price():
+    try:
+        response = requests.get(
+            "https://min-api.cryptocompare.com/data/price",
+            params={
+                "fsym": "SOL",
+                "tsyms": "USD",
+                "api_key": "1f8cf58214133d08d54de1f4b0fed55e4291d01ee9f9563b1abd26bca4ad8b67"
+            },
+            headers={"Content-type": "application/json; charset=UTF-8"}
+        )
+
+        if response.status_code == 200:
+            json_response = response.json()
+            logger.info("Prix de SOL en USD: %s", json_response)
+            return json_response
+        else:
+            logger.error("Erreur lors de la récupération des données: %s %s", response.status_code, response.text)
+            return None
+    except Exception as e:
+        logger.error("Exception lors de la récupération des données: %s", str(e))
+        return None
+
+if __name__ == "__main__":
+    sol_price = get_sol_price()
+    if sol_price:
+        print("Prix actuel de SOL en USD:", sol_price)
