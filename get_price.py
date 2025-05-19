@@ -1,41 +1,58 @@
-import requests
+import websocket
+import json
 import pandas as pd
+from threading import Thread
+import time
 
-def get_price_data(symbol, interval):
-    try:
-        url = "https://api.binance.com/api/v3/klines"
-        params = {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": 100
-        }
-        
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        
-        # Colonnes complètes de la réponse Binance
-        columns = [
-            'open_time', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_asset_volume', 'number_of_trades',
-            'taker_buy_base', 'taker_buy_quote', 'ignore'
-        ]
-        
-        # Création du DataFrame avec toutes les colonnes
-        df = pd.DataFrame(response.json(), columns=columns)
-        
-        # Sélection des colonnes utiles
-        keep_columns = ['open_time', 'open', 'high', 'low', 'close', 'volume']
-        df = df[keep_columns]
-        
-        # Conversion des types
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
-        
-        # Conversion du timestamp
-        df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-        
-        return df
+class RealTimeData:
+    def __init__(self, symbol='solusdt'):
+        self.symbol = symbol
+        self.df = pd.DataFrame(columns=['timestamp', 'price', 'volume'])
+        self.ws = None
+        self.active = True
+        self.connect()
 
-    except Exception as e:
-        print(f"Erreur récupération prix: {str(e)}")
-        return pd.DataFrame()
+    def connect(self):
+        self.ws = websocket.WebSocketApp(
+            f"wss://stream.binance.com:9443/ws/{self.symbol}@trade",
+            on_open=lambda ws: print("🔌 Connecté au flux temps réel"),
+            on_message=self._handle_message,
+            on_error=self._handle_error,
+            on_close=self._handle_close
+        )
+        Thread(target=self.ws.run_forever).start()
+
+    def _handle_message(self, ws, message):
+        try:
+            trade = json.loads(message)
+            new_data = pd.DataFrame([{
+                'timestamp': pd.to_datetime(trade['T'], unit='ms'),
+                'price': float(trade['p']),
+                'volume': float(trade['q'])
+            }])
+            self.df = pd.concat([self.df, new_data]).tail(1000)
+        except Exception as e:
+            print(f"Erreur traitement données: {str(e)}")
+
+    def _handle_error(self, ws, error):
+        print(f"🚨 Erreur WebSocket: {str(error)}")
+        self._reconnect()
+
+    def _handle_close(self, ws, *args):
+        print("🔌 Déconnexion du WebSocket")
+        self._reconnect()
+
+    def _reconnect(self):
+        if self.active:
+            print("🔄 Reconnexion dans 5s...")
+            time.sleep(5)
+            self.connect()
+
+    def get_recent_data(self):
+        return self.df.iloc[-1].to_dict() if not self.df.empty else None
+
+    def get_variation(self, period=60):
+        if len(self.df) > period:
+            return ((self.df['price'].iloc[-1] - self.df['price'].iloc[-period]) 
+                   / self.df['price'].iloc[-period] * 100)
+        return 0.0
