@@ -4,14 +4,17 @@ import pandas as pd
 from threading import Thread
 import time
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RealTimeData:
-    def __init__(self, symbol='solusdt'):
+    def __init__(self, symbol='BTC', quote='USD'):
+        self.api_key = os.getenv("CRYPTOCOMPARE_API_KEY")
         self.symbol = symbol
+        self.quote = quote
         self.df = pd.DataFrame(columns=['timestamp', 'price', 'volume'])
         self.ws = None
         self.active = True
@@ -19,23 +22,37 @@ class RealTimeData:
 
     def connect(self):
         self.ws = websocket.WebSocketApp(
-            f"wss://stream.binance.com:9443/ws/{self.symbol}@trade",
-            on_open=lambda ws: logger.info("🔌 Connecté au flux temps réel"),
+            f"wss://streamer.cryptocompare.com/v2?api_key={self.api_key}",
+            on_open=self._on_open,
             on_message=self._handle_message,
             on_error=self._handle_error,
             on_close=self._handle_close
         )
         Thread(target=self.ws.run_forever).start()
 
+    def _on_open(self, ws):
+        logger.info("🔌 Connecté au flux temps réel")
+        self.subscribe()
+
+    def subscribe(self):
+        subscription_message = {
+            'action': 'SubAdd',
+            'subs': [f'5~CCCAGG~{self.symbol}~{self.quote}']
+        }
+        self.ws.send(json.dumps(subscription_message))
+
     def _handle_message(self, ws, message):
         try:
-            trade = json.loads(message)
-            new_data = pd.DataFrame([{
-                'timestamp': pd.to_datetime(trade['T'], unit='ms'),
-                'price': float(trade['p']),
-                'volume': float(trade['q'])
-            }])
-            self.df = pd.concat([self.df, new_data]).tail(1000)
+            data = json.loads(message)
+            if 'TYPE' in data and data['TYPE'] == '5':
+                logger.info(f"Message reçu: {data}")
+                new_data = pd.DataFrame([{
+                    'timestamp': pd.to_datetime(data['TIME_FROM'], unit='ms'),
+                    'price': data['PRICE'],
+                    'volume': data['VOLUME24HOUR']
+                }])
+                self.df = pd.concat([self.df, new_data]).tail(1000)
+                logger.info(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
         except Exception as e:
             logger.error(f"Erreur traitement données: {str(e)}")
 
@@ -55,6 +72,7 @@ class RealTimeData:
 
     def get_recent_data(self):
         if not self.df.empty:
+            logger.info(f"Données récentes: {self.df.iloc[-1].to_dict()}")
             return self.df.iloc[-1].to_dict()
         else:
             logger.error("Aucune donnée disponible")
