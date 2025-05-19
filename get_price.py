@@ -8,9 +8,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RealTimeData:
-    def __init__(self, symbol='solana', quote='usd'):
+    def __init__(self, symbol='SOLUSDT'):
         self.symbol = symbol
-        self.quote = quote
         self.df = pd.DataFrame(columns=['timestamp', 'price'])
         self.last_log_time = time.time()
         self.get_price()
@@ -18,16 +17,14 @@ class RealTimeData:
     def get_price(self):
         try:
             response = requests.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={
-                    "ids": self.symbol,
-                    "vs_currencies": self.quote
-                }
+                f"https://api.binance.com/api/v3/ticker/price",
+                params={"symbol": self.symbol}
             )
 
             if response.status_code == 200:
                 json_response = response.json()
-                price = json_response.get(self.symbol, {}).get(self.quote)
+                logger.debug(f"Réponse de l'API: {json_response}")
+                price = float(json_response.get('price', None))
                 if price is not None:
                     timestamp = pd.Timestamp.now()
                     new_data = pd.DataFrame([{
@@ -65,4 +62,4 @@ if __name__ == "__main__":
     sol_data = RealTimeData()
     recent_data = sol_data.get_recent_data()
     if recent_data:
-        print("Données récentes de SOL en USD:", recent_data)
+        print("Données récentes de SOL en USDT:", recent_data)
