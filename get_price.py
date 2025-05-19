@@ -1,63 +1,38 @@
-import websocket
-import json
-import pandas as pd
-from threading import Thread
-import time
-import logging
-import os
 import requests
+import logging
+import time
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RealTimeData:
-    def __init__(self, symbol='SOL', quote='USD'):
-        self.api_key = os.getenv("CRYPTOCOMPARE_API_KEY")
+    def __init__(self, symbol='solana', quote='usd'):
         self.symbol = symbol
         self.quote = quote
-        self.df = pd.DataFrame(columns=['timestamp', 'price', 'volume'])
-        self.ws = None
-        self.active = True
+        self.df = pd.DataFrame(columns=['timestamp', 'price'])
         self.last_log_time = time.time()
-        self.connect()
+        self.get_price()
 
-    def connect(self):
-        self.ws = websocket.WebSocketApp(
-            f"wss://streamer.cryptocompare.com/v2?api_key={self.api_key}",
-            on_open=self._on_open,
-            on_message=self._handle_message,
-            on_error=self._handle_error,
-            on_close=self._handle_close
-        )
-        Thread(target=self.ws.run_forever).start()
-
-    def _on_open(self, ws):
-        logger.info("🔌 Connecté au flux temps réel")
-        self.subscribe()
-
-    def subscribe(self):
-        subscription_message = {
-            'action': 'SubAdd',
-            'subs': [f'5~CCCAGG~{self.symbol}~{self.quote}']
-        }
-        logger.debug(f"Subscription message: {subscription_message}")
-        self.ws.send(json.dumps(subscription_message))
-
-    def _handle_message(self, ws, message):
+    def get_price(self):
         try:
-            data = json.loads(message)
-            logger.debug(f"Message reçu: {data}")
-            if 'TYPE' in data and data['TYPE'] == '5':
-                timestamp = pd.to_datetime(data.get('LASTUPDATE', time.time()), unit='s')
-                price = data.get('PRICE', None)
-                volume = data.get('VOLUME24HOUR', None)
+            response = requests.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={
+                    "ids": self.symbol,
+                    "vs_currencies": self.quote
+                }
+            )
 
-                if price is not None and volume is not None:
+            if response.status_code == 200:
+                json_response = response.json()
+                price = json_response.get(self.symbol, {}).get(self.quote)
+                if price is not None:
+                    timestamp = pd.Timestamp.now()
                     new_data = pd.DataFrame([{
                         'timestamp': timestamp,
-                        'price': price,
-                        'volume': volume
+                        'price': price
                     }])
                     self.df = pd.concat([self.df, new_data]).tail(1000)
 
@@ -67,24 +42,11 @@ class RealTimeData:
                         logger.info(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
                         self.last_log_time = current_time
                 else:
-                    missing_keys = [key for key in ['PRICE', 'VOLUME24HOUR'] if key not in data]
-                    logger.error(f"Clés manquantes dans les données reçues: {missing_keys}")
+                    logger.error("Clé de prix manquante dans les données reçues")
+            else:
+                logger.error("Erreur lors de la récupération des données: %s %s", response.status_code, response.text)
         except Exception as e:
-            logger.error(f"Erreur traitement données: {str(e)}")
-
-    def _handle_error(self, ws, error):
-        logger.error(f"🚨 Erreur WebSocket: {str(error)}")
-        self._reconnect()
-
-    def _handle_close(self, ws, *args):
-        logger.info("🔌 Déconnexion du WebSocket")
-        self._reconnect()
-
-    def _reconnect(self):
-        if self.active:
-            logger.info("🔄 Reconnexion dans 5s...")
-            time.sleep(5)
-            self.connect()
+            logger.error("Exception lors de la récupération des données: %s", str(e))
 
     def get_recent_data(self):
         if not self.df.empty:
@@ -99,30 +61,8 @@ class RealTimeData:
                    / self.df['price'].iloc[-period] * 100)
         return 0.0
 
-def get_sol_price():
-    try:
-        response = requests.get(
-            "https://min-api.cryptocompare.com/data/price",
-            params={
-                "fsym": "SOL",
-                "tsyms": "USD",
-                "api_key": "1f8cf58214133d08d54de1f4b0fed55e4291d01ee9f9563b1abd26bca4ad8b67"
-            },
-            headers={"Content-type": "application/json; charset=UTF-8"}
-        )
-
-        if response.status_code == 200:
-            json_response = response.json()
-            logger.info("Prix de SOL en USD: %s", json_response)
-            return json_response
-        else:
-            logger.error("Erreur lors de la récupération des données: %s %s", response.status_code, response.text)
-            return None
-    except Exception as e:
-        logger.error("Exception lors de la récupération des données: %s", str(e))
-        return None
-
 if __name__ == "__main__":
-    sol_price = get_sol_price()
-    if sol_price:
-        print("Prix actuel de SOL en USD:", sol_price)
+    sol_data = RealTimeData()
+    recent_data = sol_data.get_recent_data()
+    if recent_data:
+        print("Données récentes de SOL en USD:", recent_data)
