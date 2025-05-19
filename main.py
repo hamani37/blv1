@@ -22,7 +22,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 WEBHOOK_TARGET = os.getenv("TARGET_WEBHOOK")
 
 # Initialisation des composants
-rt_data = RealTimeData(symbol='solusdt')
+rt_data = RealTimeData(symbol='BTC', quote='USD')
 trading_ai = TradingAIAutoLearn()
 
 @app.route("/", methods=["GET"])
