@@ -1,68 +1,52 @@
-import joblib
+from statistics import mean
+from ta.trend import MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands
+from ta.volume import OnBalanceVolumeIndicator
+from ta.trend import CCIIndicator
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.model_selection import train_test_split
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def analyse_signal(signal, history):
+    if len(history) < 5:
+        return {"status": "waiting", "reason": "not enough history"}
 
-class TradingAIAutoLearn:
-    def __init__(self):
-        self.model = None
-        self.training_data = pd.DataFrame()
-        self.signal_count = 0
-        self.accuracy = 0.0
-        self.model_file = "trading_model.pkl"
+    df = pd.DataFrame(history)
+    df["price"] = pd.to_numeric(df["price"])
+    close = df["price"]
 
-        try:
-            self.model = joblib.load(self.model_file)
-        except:
-            pass
+    rsi = RSIIndicator(close).rsi().iloc[-1]
+    macd = MACD(close).macd_diff().iloc[-1]
+    bb = BollingerBands(close)
+    bb_width = bb.bollinger_hband().iloc[-1] - bb.bollinger_lband().iloc[-1]
+    obv = OnBalanceVolumeIndicator(close, pd.Series([1000000]*len(close))).on_balance_volume().iloc[-1]
+    cci = CCIIndicator(close).cci().iloc[-1]
 
-    def add_training_data(self, data):
-        new_row = pd.DataFrame([{
-            'rsi': data['rsi'],
-            'macd_diff': data['macd_diff'],
-            'variation': data['variation_1m'],
-            'signal_type': data['signal_type'],
-            'target': 1 if ((data['signal_type'] == 'LONG' and data['variation_1m'] >= 0.5) or
-                           (data['signal_type'] == 'SHORT' and data['variation_1m'] <= -0.5)) else 0
-        }])
+    last_price = float(signal["price"])
+    last_dir = signal["direction"]
+    previous_price = float(history[-1]["price"])
+    variation = ((last_price - previous_price) / previous_price) * 100
 
-        self.training_data = pd.concat([self.training_data, new_row])
-        self.signal_count += 1
+    valid_long = last_dir == "long" and variation > 0.5
+    valid_short = last_dir == "short" and variation < -0.5
 
-        if self.signal_count % 50 == 0:
-            self._train_model()
+    if valid_long:
+        decision = "SEND_LONG"
+    elif valid_short:
+        decision = "SEND_SHORT"
+    else:
+        decision = "REJECTED"
 
-    def _train_model(self):
-        X = pd.get_dummies(self.training_data[['rsi', 'macd_diff', 'variation', 'signal_type']])
-        y = self.training_data['target']
-
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-
-        self.model = GradientBoostingClassifier(
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=3
-        )
-        self.model.fit(X_train, y_train)
-        self.accuracy = self.model.score(X_test, y_test)
-        joblib.dump(self.model, self.model_file)
-        logger.info(f"Model trained with accuracy: {self.accuracy}")
-
-    def predict(self, features):
-        if self.model:
-            X = pd.DataFrame([[
-                features['rsi'],
-                features['macd_diff'],
-                features['variation']
-            ]], columns=['rsi', 'macd_diff', 'variation'])
-            return self.model.predict_proba(X)[0][1]
-        return 0.0
-
-    @property
-    def model_ready(self):
-        return self.model is not None
+    return {
+        "timestamp": signal["timestamp"],
+        "pair": signal["pair"],
+        "interval": signal["interval"],
+        "price": last_price,
+        "direction": last_dir,
+        "variation": round(variation, 3),
+        "rsi": round(rsi, 2),
+        "macd": round(macd, 4),
+        "bb_width": round(bb_width, 4),
+        "obv": round(obv, 2),
+        "cci": round(cci, 2),
+        "decision": decision
+    }
