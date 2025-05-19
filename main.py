@@ -9,6 +9,11 @@ from analyze_indicators import calculate_indicators
 from ml_model import TradingAIAutoLearn
 from log_utils import save_trading_log
 import pandas as pd
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,18 +37,20 @@ def dashboard():
 @app.route("/webhook", methods=["POST"])
 def handle_signal():
     try:
+        logger.debug("Received webhook request")
         # Configuration du signal
         signal_data = request.get_json()
         signal_type = signal_data.get('type', 'long').upper()
-        
+
         # Vérification des données temps réel
         current_data = rt_data.get_recent_data()
         if not current_data:
+            logger.error("Données marché indisponibles")
             return jsonify({"erreur": "Données marché indisponibles"}), 503
-            
+
         # Calcul des indicateurs
         indicators = calculate_indicators(rt_data.df)
-        
+
         # Gestion de l'apprentissage
         if not trading_ai.model_ready:
             trading_ai.add_training_data({
@@ -61,7 +68,7 @@ def handle_signal():
                 'variation': indicators['variation_1m']
             })
             action = "TRANSMIS" if confidence >= 0.75 else "REJETÉ"
-        
+
         # Journalisation détaillée
         log_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -72,7 +79,7 @@ def handle_signal():
             "indicateurs": indicators
         }
         save_trading_log(log_entry)
-        
+
         # Transmission du signal validé
         if action == "TRANSMIS" and WEBHOOK_TARGET:
             requests.post(WEBHOOK_TARGET, json={
@@ -81,10 +88,11 @@ def handle_signal():
                 "price": current_data['price'],
                 "timestamp": log_entry['timestamp']
             })
-        
+
         return jsonify(log_entry)
 
     except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}", exc_info=True)
         return jsonify({"erreur": str(e)}), 500
 
 if __name__ == "__main__":
