@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class TradingAIAutoLearn:
@@ -51,7 +51,7 @@ class TradingAIAutoLearn:
         self.model.fit(X_train, y_train)
         self.accuracy = self.model.score(X_test, y_test)
         joblib.dump(self.model, self.model_file)
-        logger.debug(f"Model trained with accuracy: {self.accuracy}")
+        logger.info(f"Model trained with accuracy: {self.accuracy}")
 
     def predict(self, features):
         if self.model:
