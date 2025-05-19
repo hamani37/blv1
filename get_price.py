@@ -48,7 +48,7 @@ class RealTimeData:
             logger.debug(f"Message reçu: {data}")
             if 'TYPE' in data and data['TYPE'] == '5':
                 new_data = pd.DataFrame([{
-                    'timestamp': pd.to_datetime(data['TIME_FROM'], unit='ms'),
+                    'timestamp': pd.to_datetime(data['LASTUPDATE'], unit='s'),
                     'price': data['PRICE'],
                     'volume': data['VOLUME24HOUR']
                 }])
