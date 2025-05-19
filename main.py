@@ -2,81 +2,90 @@ from flask import Flask, request, jsonify
 import openai
 import os
 import sys
+import requests
 from datetime import datetime
-from get_price import get_price_data
-from analyze_indicators import get_indicators
-from log_utils import log_signal, save_signal_to_json
+from get_price import RealTimeData
+from analyze_indicators import calculate_indicators
+from ml_model import TradingAIAutoLearn
+from log_utils import save_trading_log
+import pandas as pd
 
-# Configuration pour Render
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 app = Flask(__name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+WEBHOOK_TARGET = os.getenv("TARGET_WEBHOOK")
+
+# Initialisation des composants
+rt_data = RealTimeData(symbol='solusdt')
+trading_ai = TradingAIAutoLearn()
 
 @app.route("/", methods=["GET"])
-def home():
-    return "SOL/USD 1M Trading Bot - BLV Car 🔥"
+def dashboard():
+    return jsonify({
+        "status": "ACTIF",
+        "mode": "APPRENTISSAGE" if not trading_ai.model else "PRODUCTION",
+        "signaux_traités": trading_ai.signal_count,
+        "précision": f"{trading_ai.accuracy * 100:.1f}%" if trading_ai.accuracy else "N/A"
+    })
 
 @app.route("/webhook", methods=["POST"])
-def webhook():
+def handle_signal():
     try:
-        data = request.get_json()
-        print("📩 Signal reçu:", data)
-
-        # Paramètres fixes pour SOL/USD 1min
-        symbol = "SOLUSDT"
-        interval = "1m"
-
-        price_data = get_price_data(symbol, interval)
-        if price_data is None or price_data.empty:
-            return jsonify({"error": "Données prix indisponibles"}), 500
-
-        indicators = get_indicators(price_data)
-        if not indicators:
-            return jsonify({"error": "Erreur indicateurs"}), 500
-
-        current_price = price_data["close"].iloc[-1]
-
-        # Vérification des clés des indicateurs
-        required_keys = ['rsi', 'macd', 'macd_signal', 'bollinger_high', 'bollinger_low']
-        if not all(key in indicators for key in required_keys):
-            return jsonify({"error": "Indicateurs incomplets"}), 500
-
-        # Construction du message pour GPT
-        messages = [
-            {"role": "system", "content": "Expert trading SOL/USD 1min."},
-            {"role": "user", "content": f"""Données SOL/USD:
-- Prix: {current_price:.4f}$
-- RSI: {indicators['rsi']}
-- MACD: {indicators['macd']:.5f}
-- Bollinger: {indicators['bollinger_high']:.5f}|{indicators['bollinger_low']:.5f}
-- Volume: {indicators['obv']:.2f}
-Analyse en 2 lignes. Réponse formatée: [DIRECTION] [CONFIDENCE%] [RAISON]"""}
-        ]
-
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=100
-        )
-
-        ai_response = response.choices[0].message["content"].strip()
-        print("🧠 Réponse IA:", ai_response)
-
-        # Log et sauvegarde
-        log_signal(symbol, interval, current_price, None, ai_response)
-        save_signal_to_json(symbol, interval, current_price, None, ai_response)
-
-        return jsonify({
-            "status": "success",
-            "analysis": ai_response,
-            "price": current_price
-        })
+        # Configuration du signal
+        signal_data = request.get_json()
+        signal_type = signal_data.get('type', 'long').upper()
+        
+        # Vérification des données temps réel
+        current_data = rt_data.get_recent_data()
+        if not current_data:
+            return jsonify({"erreur": "Données marché indisponibles"}), 503
+            
+        # Calcul des indicateurs
+        indicators = calculate_indicators(rt_data.df)
+        
+        # Gestion de l'apprentissage
+        if not trading_ai.model_ready:
+            trading_ai.add_training_data({
+                **indicators,
+                "signal_type": signal_type,
+                "timestamp": datetime.now().isoformat()
+            })
+            action = "APPRENTISSAGE"
+            confidence = 0.0
+        else:
+            # Prédiction avec l'IA
+            confidence = trading_ai.predict({
+                'rsi': indicators['rsi'],
+                'macd': indicators['macd_diff'],
+                'variation': indicators['variation_1m']
+            })
+            action = "TRANSMIS" if confidence >= 0.75 else "REJETÉ"
+        
+        # Journalisation détaillée
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type_signal": signal_type,
+            "prix": current_data['price'],
+            "confiance": f"{confidence * 100:.1f}%" if confidence else "N/A",
+            "action": action,
+            "indicateurs": indicators
+        }
+        save_trading_log(log_entry)
+        
+        # Transmission du signal validé
+        if action == "TRANSMIS" and WEBHOOK_TARGET:
+            requests.post(WEBHOOK_TARGET, json={
+                "action": signal_type,
+                "confidence": confidence,
+                "price": current_data['price'],
+                "timestamp": log_entry['timestamp']
+            })
+        
+        return jsonify(log_entry)
 
     except Exception as e:
-        print(f"🚨 Erreur globale: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"erreur": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
