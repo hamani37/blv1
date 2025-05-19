@@ -7,11 +7,11 @@ import logging
 import os
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class RealTimeData:
-    def __init__(self, symbol='BTC', quote='USD'):
+    def __init__(self, symbol='SOL', quote='USD'):
         self.api_key = os.getenv("CRYPTOCOMPARE_API_KEY")
         self.symbol = symbol
         self.quote = quote
@@ -39,13 +39,14 @@ class RealTimeData:
             'action': 'SubAdd',
             'subs': [f'5~CCCAGG~{self.symbol}~{self.quote}']
         }
+        logger.debug(f"Subscription message: {subscription_message}")
         self.ws.send(json.dumps(subscription_message))
 
     def _handle_message(self, ws, message):
         try:
             data = json.loads(message)
+            logger.debug(f"Message reçu: {data}")
             if 'TYPE' in data and data['TYPE'] == '5':
-                logger.info(f"Message reçu: {data}")
                 new_data = pd.DataFrame([{
                     'timestamp': pd.to_datetime(data['TIME_FROM'], unit='ms'),
                     'price': data['PRICE'],
