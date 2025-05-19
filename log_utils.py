@@ -1,44 +1,16 @@
 import json
 from datetime import datetime
-import os
 
-def log_signal(symbol, interval, price, variation, analysis):
+def save_trading_log(log_data):
     log_entry = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "symbol": symbol,
-        "interval": interval,
-        "price": price,
-        "variation": variation,
-        "analysis": analysis
+        "horodatage": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "type": log_data['type_signal'],
+        "prix": log_data['prix'],
+        "confiance": log_data['confiance'],
+        "action": log_data['action'],
+        "indicateurs": log_data['indicateurs'],
+        "variation_réelle": "N/A"
     }
     
-    print(f"📝 Log: {json.dumps(log_entry, indent=2)}")
-
-def save_signal_to_json(symbol, interval, price, variation, analysis):
-    try:
-        filename = "signals_history.json"
-        data = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "symbol": symbol,
-            "interval": interval,
-            "price": price,
-            "variation": variation,
-            "analysis": analysis
-        }
-        
-        if os.path.exists(filename):
-            with open(filename, "r+") as file:
-                existing = json.load(file)
-                existing.append(data)
-                file.seek(0)
-                json.dump(existing, file, indent=2)
-        else:
-            with open(filename, "w") as file:
-                json.dump([data], file, indent=2)
-                
-    except Exception as e:
-        print(f"Erreur de sauvegarde : {str(e)}")
-
-def get_last_price_variation(current_price):
-    # Implémentation basique (à améliorer)
-    return 0.0  # Temporaire
+    with open('trading_logs.jsonl', 'a') as f:
+        f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
