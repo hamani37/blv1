@@ -1,41 +1,62 @@
-import openai
-import os
-import json
-from log_utils import get_last_price_variation
-from dotenv import load_dotenv
+import joblib
+import pandas as pd
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import train_test_split
 
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+class TradingAIAutoLearn:
+    def __init__(self):
+        self.model = None
+        self.training_data = pd.DataFrame()
+        self.signal_count = 0
+        self.accuracy = 0.0
+        self.model_file = "trading_model.pkl"
+        
+        try:
+            self.model = joblib.load(self.model_file)
+        except:
+            pass
 
-def ia_analyse_signal(signal, price, indicators):
-    try:
-        variation = get_last_price_variation(price)
+    def add_training_data(self, data):
+        new_row = pd.DataFrame([{
+            'rsi': data['rsi'],
+            'macd_diff': data['macd_diff'],
+            'variation': data['variation_1m'],
+            'signal_type': data['signal_type'],
+            'target': 1 if ((data['signal_type'] == 'LONG' and data['variation_1m'] >= 0.5) or 
+                           (data['signal_type'] == 'SHORT' and data['variation_1m'] <= -0.5)) else 0
+        }])
+        
+        self.training_data = pd.concat([self.training_data, new_row])
+        self.signal_count += 1
+        
+        if self.signal_count % 50 == 0:
+            self._train_model()
 
-        instruction = f"""
-Tu es une IA de trading sérieuse et stricte.
-Voici les données techniques :
-- Signal reçu : {signal}
-- Variation entre les deux derniers signaux : {variation:.2f}%
-- Indicateurs : {json.dumps(indicators, indent=2)}
-
-Règles à respecter :
-- VALIDE un signal LONG uniquement si variation >= +0.5 %
-- VALIDE un signal SHORT uniquement si variation <= -0.5 %
-- Sinon, REFUSE de valider le signal.
-
-Réponds uniquement par 'VALIDE' ou 'REFUSE', suivi d'une explication sérieuse et concise.
-"""
-
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": instruction}],
-            temperature=0.4
+    def _train_model(self):
+        X = pd.get_dummies(self.training_data[['rsi', 'macd_diff', 'variation', 'signal_type']])
+        y = self.training_data['target']
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        
+        self.model = GradientBoostingClassifier(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=3
         )
+        self.model.fit(X_train, y_train)
+        self.accuracy = self.model.score(X_test, y_test)
+        joblib.dump(self.model, self.model_file)
 
-        reply = response['choices'][0]['message']['content']
-        decision = "VALIDE" if "VALIDE" in reply.upper() else "REFUSE"
+    def predict(self, features):
+        if self.model:
+            X = pd.DataFrame([[
+                features['rsi'],
+                features['macd_diff'],
+                features['variation']
+            ]], columns=['rsi', 'macd_diff', 'variation'])
+            return self.model.predict_proba(X)[0][1]
+        return 0.0
 
-        return decision, reply.strip()
-
-    except Exception as e:
-        return "REFUSE", f"Erreur IA : {str(e)}"
+    @property
+    def model_ready(self):
+        return self.model is not None
