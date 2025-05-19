@@ -47,8 +47,9 @@ class RealTimeData:
             data = json.loads(message)
             logger.debug(f"Message reçu: {data}")
             if 'TYPE' in data and data['TYPE'] == '5':
+                timestamp = pd.to_datetime(data.get('LASTUPDATE', time.time()), unit='s')
                 new_data = pd.DataFrame([{
-                    'timestamp': pd.to_datetime(data['LASTUPDATE'], unit='s'),
+                    'timestamp': timestamp,
                     'price': data['PRICE'],
                     'volume': data['VOLUME24HOUR']
                 }])
