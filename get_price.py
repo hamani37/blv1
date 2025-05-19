@@ -46,20 +46,24 @@ class RealTimeData:
     def _handle_message(self, ws, message):
         try:
             data = json.loads(message)
+            logger.debug(f"Message reçu: {data}")
             if 'TYPE' in data and data['TYPE'] == '5':
-                timestamp = pd.to_datetime(data.get('LASTUPDATE', time.time()), unit='s')
-                new_data = pd.DataFrame([{
-                    'timestamp': timestamp,
-                    'price': data['PRICE'],
-                    'volume': data['VOLUME24HOUR']
-                }])
-                self.df = pd.concat([self.df, new_data]).tail(1000)
+                if 'PRICE' in data and 'VOLUME24HOUR' in data and 'LASTUPDATE' in data:
+                    timestamp = pd.to_datetime(data['LASTUPDATE'], unit='s')
+                    new_data = pd.DataFrame([{
+                        'timestamp': timestamp,
+                        'price': data['PRICE'],
+                        'volume': data['VOLUME24HOUR']
+                    }])
+                    self.df = pd.concat([self.df, new_data]).tail(1000)
 
-                # Log only every 10 updates
-                current_time = time.time()
-                if current_time - self.last_log_time > 10:  # Log every 10 seconds
-                    logger.info(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
-                    self.last_log_time = current_time
+                    # Log only every 10 updates
+                    current_time = time.time()
+                    if current_time - self.last_log_time > 10:  # Log every 10 seconds
+                        logger.info(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
+                        self.last_log_time = current_time
+                else:
+                    logger.error("Clé 'PRICE', 'VOLUME24HOUR', ou 'LASTUPDATE' manquante dans les données reçues")
         except Exception as e:
             logger.error(f"Erreur traitement données: {str(e)}")
 
