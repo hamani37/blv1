@@ -1,102 +1,37 @@
 from flask import Flask, request, jsonify
-import openai
-import os
-import sys
-import requests
-from datetime import datetime
-from get_price import RealTimeData
-from analyze_indicators import calculate_indicators
-from ml_model import TradingAIAutoLearn
-from log_utils import save_trading_log
-import pandas as pd
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from ml_model import analyse_signal
+from log_utils import log_signal, log_decision
+import json
+import time
 
 app = Flask(__name__)
-openai.api_key = os.getenv("OPENAI_API_KEY")
-WEBHOOK_TARGET = os.getenv("TARGET_WEBHOOK")
 
-# Initialisation des composants
-rt_data = RealTimeData(symbol='BTC', quote='USD')
-trading_ai = TradingAIAutoLearn()
+PAIR = "SOL/USDT"
+INTERVAL = "1m"
 
-@app.route("/", methods=["GET"])
-def dashboard():
-    return jsonify({
-        "status": "ACTIF",
-        "mode": "APPRENTISSAGE" if not trading_ai.model else "PRODUCTION",
-        "signaux_traités": trading_ai.signal_count,
-        "précision": f"{trading_ai.accuracy * 100:.1f}%" if trading_ai.accuracy else "N/A"
-    })
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    with open("live_data.json", "r") as f:
+        history = json.load(f)
 
-@app.route("/webhook", methods=["POST"])
-def handle_signal():
-    try:
-        logger.info("Received webhook request")
-        # Configuration du signal
-        signal_data = request.get_json()
-        signal_type = signal_data.get('type', 'long').upper()
+    signal = {
+        "timestamp": time.time(),
+        "pair": PAIR,
+        "interval": INTERVAL,
+        "price": data.get("price"),
+        "direction": data.get("signal")
+    }
 
-        # Vérification des données temps réel
-        current_data = rt_data.get_recent_data()
-        if not current_data:
-            logger.error("Données marché indisponibles")
-            return jsonify({"erreur": "Données marché indisponibles"}), 503
+    log_signal(signal)
+    result = analyse_signal(signal, history)
 
-        # Calcul des indicateurs
-        indicators = calculate_indicators(rt_data.df)
+    log_decision(result)
+    history.append(result)
+    with open("live_data.json", "w") as f:
+        json.dump(history[-50:], f, indent=2)
 
-        # Gestion de l'apprentissage
-        if not trading_ai.model_ready:
-            trading_ai.add_training_data({
-                **indicators,
-                "signal_type": signal_type,
-                "timestamp": datetime.now().isoformat()
-            })
-            logger.info(f"📩 Signal #{trading_ai.signal_count} reçu (Phase d'apprentissage)")
-            logger.info("🧠 Modèle pas encore entraîné (50 signaux requis)")
-            logger.info("📊 Signal enregistré pour apprentissage")
-            action = "APPRENTISSAGE"
-            confidence = 0.0
-        else:
-            # Prédiction avec l'IA
-            confidence = trading_ai.predict({
-                'rsi': indicators['rsi'],
-                'macd': indicators['macd_diff'],
-                'variation': indicators['variation_1m']
-            })
-            action = "TRANSMIS" if confidence >= 0.75 else "REJETÉ"
+    return jsonify(result)
 
-        # Journalisation détaillée
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "type_signal": signal_type,
-            "prix": current_data['price'],
-            "confiance": f"{confidence * 100:.1f}%" if confidence else "N/A",
-            "action": action,
-            "indicateurs": indicators
-        }
-        save_trading_log(log_entry)
-
-        # Transmission du signal validé
-        if action == "TRANSMIS" and WEBHOOK_TARGET:
-            requests.post(WEBHOOK_TARGET, json={
-                "action": signal_type,
-                "confidence": confidence,
-                "price": current_data['price'],
-                "timestamp": log_entry['timestamp']
-            })
-
-        return jsonify(log_entry)
-
-    except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}", exc_info=True)
-        return jsonify({"erreur": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+if __name__ == '__main__':
+    app.run(debug=True)
