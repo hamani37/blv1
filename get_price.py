@@ -48,12 +48,15 @@ class RealTimeData:
             data = json.loads(message)
             logger.debug(f"Message reçu: {data}")
             if 'TYPE' in data and data['TYPE'] == '5':
-                if all(key in data for key in ['PRICE', 'VOLUME24HOUR', 'LASTUPDATE']):
-                    timestamp = pd.to_datetime(data['LASTUPDATE'], unit='s')
+                timestamp = pd.to_datetime(data.get('LASTUPDATE', time.time()), unit='s')
+                price = data.get('PRICE', None)
+                volume = data.get('VOLUME24HOUR', None)
+
+                if price is not None and volume is not None:
                     new_data = pd.DataFrame([{
                         'timestamp': timestamp,
-                        'price': data['PRICE'],
-                        'volume': data['VOLUME24HOUR']
+                        'price': price,
+                        'volume': volume
                     }])
                     self.df = pd.concat([self.df, new_data]).tail(1000)
 
@@ -63,7 +66,7 @@ class RealTimeData:
                         logger.info(f"Données mises à jour: {self.df.iloc[-1].to_dict()}")
                         self.last_log_time = current_time
                 else:
-                    missing_keys = [key for key in ['PRICE', 'VOLUME24HOUR', 'LASTUPDATE'] if key not in data]
+                    missing_keys = [key for key in ['PRICE', 'VOLUME24HOUR'] if key not in data]
                     logger.error(f"Clés manquantes dans les données reçues: {missing_keys}")
         except Exception as e:
             logger.error(f"Erreur traitement données: {str(e)}")
