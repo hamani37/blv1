@@ -40,6 +40,7 @@ class RealTimeData:
             'action': 'SubAdd',
             'subs': [f'5~CCCAGG~{self.symbol}~{self.quote}']
         }
+        logger.debug(f"Subscription message: {subscription_message}")
         self.ws.send(json.dumps(subscription_message))
 
     def _handle_message(self, ws, message):
