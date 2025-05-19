@@ -59,7 +59,7 @@ class RealTimeData:
         return 0.0
 
 if __name__ == "__main__":
-    sol_data = RealTimeData()
+    sol_data = RealTimeData(symbol='SOLUSDT')
     recent_data = sol_data.get_recent_data()
     if recent_data:
         print("Données récentes de SOL en USDT:", recent_data)
