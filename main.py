@@ -12,7 +12,7 @@ import pandas as pd
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -37,7 +37,7 @@ def dashboard():
 @app.route("/webhook", methods=["POST"])
 def handle_signal():
     try:
-        logger.debug("Received webhook request")
+        logger.info("Received webhook request")
         # Configuration du signal
         signal_data = request.get_json()
         signal_type = signal_data.get('type', 'long').upper()
@@ -58,6 +58,9 @@ def handle_signal():
                 "signal_type": signal_type,
                 "timestamp": datetime.now().isoformat()
             })
+            logger.info(f"📩 Signal #{trading_ai.signal_count} reçu (Phase d'apprentissage)")
+            logger.info("🧠 Modèle pas encore entraîné (50 signaux requis)")
+            logger.info("📊 Signal enregistré pour apprentissage")
             action = "APPRENTISSAGE"
             confidence = 0.0
         else:
